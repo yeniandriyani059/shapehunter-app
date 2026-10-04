@@ -16,8 +16,8 @@ import { ShapeMascot3D, GameAssetImage } from './ShapeMascot3D.tsx';
 import { CharacterGuide, TeamCampBadge } from './GameAssets3D.tsx';
 import { ProveModal } from './ProveModal.tsx';
 import { LiveCameraModal } from './LiveCameraModal.tsx';
-import { uploadDiscoveryPhotoToStorage, supabase } from '../lib/supabase.ts';
-import { identifyShapeWithGeminiVision } from '../lib/gemini.ts';
+import { analyzeShapeClientSide } from '../utils/shapeDetector.ts';
+import { addDiscoveryToState } from '../utils/gameStore.ts';
 import {
   playClickSound,
   playPhotoIncomingSound,
@@ -105,9 +105,14 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
     setPhotoPreview(dataUrl);
     setRawFile(file);
     setIsCameraModalOpen(false);
-    if (!objectName) {
-      setObjectName('Temuan Hebatku');
-    }
+
+    // Instant client-side shape analysis
+    analyzeShapeClientSide(dataUrl).then((res) => {
+      if (res.namaBenda && (!objectName || objectName === 'Temuan Hebatku')) {
+        setObjectName(res.namaBenda);
+      }
+      setExpectedShape(res.realShape);
+    });
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,9 +124,14 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
     try {
       const compressedDataUrl = await compressImageFile(file);
       setPhotoPreview(compressedDataUrl);
-      if (!objectName) {
-        setObjectName('Temuan Hebatku');
-      }
+
+      // Instant client-side shape analysis
+      analyzeShapeClientSide(compressedDataUrl).then((res) => {
+        if (res.namaBenda && (!objectName || objectName === 'Temuan Hebatku')) {
+          setObjectName(res.namaBenda);
+        }
+        setExpectedShape(res.realShape);
+      });
     } catch {
       setHintMsg('Yuk coba ambil foto sekali lagi!');
     }
@@ -139,62 +149,32 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
     setUploadSuccess(null);
 
     try {
-      const finalPhotoUrl = await uploadDiscoveryPhotoToStorage(
-        rawFile || photoPreview,
-        session.code,
-        selectedGroupId
-      );
+      // Analyze shape client-side (intelligent computer vision / Gemini client)
+      const aiResult = await analyzeShapeClientSide(photoPreview);
+      const finalObjectName = objectName.trim() || aiResult.namaBenda || 'Benda Temuan';
 
-      // Analyze with Gemini AI Vision & save directly to Supabase table kartu_temuan
-      try {
-        const aiResult = await identifyShapeWithGeminiVision(photoPreview);
-        const { data: kData } = await supabase.from('kelompok').select('id, nama_kelompok');
-        const targetK = kData?.find((k: any) => k.nama_kelompok?.toLowerCase().includes('biru')) || kData?.[0];
-
-        await supabase.from('kartu_temuan').insert({
-          kelompok_id: targetK?.id || null,
-          image_url: finalPhotoUrl,
-          nama_benda: objectName.trim() || aiResult.namaBenda,
-          real_shape: aiResult.realShape,
-          is_proven: false,
-        });
-      } catch (sbErr) {
-        console.warn('Supabase sync notice:', sbErr);
-      }
-
-      const response = await fetch('/api/discoveries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: session.id,
-          groupId: selectedGroupId,
-          studentName: studentName.trim() || 'Petualang Cilik',
-          objectName: objectName.trim(),
-          photoUrl: finalPhotoUrl,
-          expectedShape,
-          studentClaimedShape: expectedShape,
-        }),
+      // Store in client-side state
+      const { newState } = addDiscoveryToState(state, {
+        groupId: selectedGroupId,
+        studentName: studentName.trim() || 'Petualang Cilik',
+        objectName: finalObjectName,
+        photoUrl: photoPreview,
+        expectedShape,
+        realShape: aiResult.realShape,
+        studentClaimedShape: expectedShape,
       });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Gagal mengirim kartu temuan');
-      }
 
       playPhotoIncomingSound();
       const targetGroup = groups.find((g) => g.id === selectedGroupId);
       setUploadSuccess(
-        `HEBAT! Kartu "${objectName}" sudah terbang ke Kemah ${
+        `HEBAT! Kartu "${finalObjectName}" (${aiResult.realShape.toUpperCase()}) sudah terbang ke Kemah ${
           targetGroup ? formatCampDisplayName(targetGroup.name) : 'Timmu'
         }!`
       );
       setObjectName('');
       setPhotoPreview('');
       setRawFile(null);
-
-      if (data.state) {
-        onDiscoveryUploaded(data.state);
-      }
+      onDiscoveryUploaded(newState);
     } catch (err: any) {
       setHintMsg(err.message || 'Coba kirim sekali lagi ya!');
     } finally {

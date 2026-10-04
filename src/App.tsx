@@ -23,7 +23,12 @@ import {
   XpStarsDisplay,
   TeamCampBadge,
 } from './components/GameAssets3D.tsx';
-import { supabase, isSupabaseConfigured } from './lib/supabase.ts';
+import {
+  loadSavedGameState,
+  saveGameState,
+  updateMissionLevel,
+  resetGameSession,
+} from './utils/gameStore.ts';
 import { LeaderboardModal } from './components/LeaderboardModal.tsx';
 import { PodiumCelebrationModal } from './components/PodiumCelebrationModal.tsx';
 import { Trophy, Award, Map, Sparkles } from 'lucide-react';
@@ -44,9 +49,8 @@ type GameScreen =
 
 function ShapeHunterApp() {
   const [screen, setScreen] = useState<GameScreen>('start');
-  const [gameState, setGameState] = useState<FullSessionState | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [gameState, setGameState] = useState<FullSessionState>(() => loadSavedGameState());
+  const [loading, setLoading] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(600);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [isVictoryPodiumOpen, setIsVictoryPodiumOpen] = useState(false);
@@ -55,6 +59,7 @@ function ShapeHunterApp() {
   const applyNewState = useCallback((nextState: FullSessionState) => {
     if (!nextState || !nextState.session) return;
     setGameState(nextState);
+    saveGameState(nextState);
     if (typeof nextState.session.timerRemainingSeconds === 'number') {
       setRemainingSeconds(nextState.session.timerRemainingSeconds);
     }
@@ -62,19 +67,13 @@ function ShapeHunterApp() {
 
   const fetchCurrentSession = useCallback(async () => {
     try {
-      setLoading(true);
-      setError(null);
       const res = await fetch('/api/sessions/current');
-      if (!res.ok) {
-        throw new Error('Gagal memuat sesi permainan.');
+      if (res.ok) {
+        const data: FullSessionState = await res.json();
+        applyNewState(data);
       }
-      const data: FullSessionState = await res.json();
-      applyNewState(data);
-    } catch (err: any) {
-      console.error('Fetch session error:', err);
-      setError('Koneksi terputus. Memuat ulang sesi...');
-    } finally {
-      setLoading(false);
+    } catch {
+      // Gracefully maintain client-side state
     }
   }, [applyNewState]);
 
@@ -176,23 +175,13 @@ function ShapeHunterApp() {
 
   const handleSelectLevel = async (levelNumber: number) => {
     if (!gameState) return;
-    try {
-      const levelInfo = Object.values(MISSION_LEVELS).find((m) => m.level === levelNumber);
-      const res = await fetch(`/api/sessions/${gameState.session.id}/settings`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentLevel: levelNumber,
-          missionTitle: levelInfo?.title || `Misi ${levelNumber}`,
-        }),
-      });
-      const data = await res.json();
-      if (data) {
-        applyNewState(data);
-      }
-    } catch {
-      // ignore
-    }
+    const updated = updateMissionLevel(gameState, levelNumber);
+    applyNewState(updated);
+    fetch(`/api/sessions/${gameState.session.id}/settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentLevel: levelNumber }),
+    }).catch(() => {});
     setScreen('arena');
   };
 
@@ -255,32 +244,7 @@ function ShapeHunterApp() {
 
       {/* MAIN GAME WORLD STAGE */}
       <main className="relative z-10 flex-1 flex flex-col">
-        {loading ? (
-          <div className="max-w-md mx-auto my-16 p-8 rounded-[32px] bg-white/95 border-4 border-sky-400 shadow-[0_10px_0_#38BDF8] text-center">
-            <div className="flex justify-center mb-4">
-              <GeometricMascotParade size={52} />
-            </div>
-            <h2 className="font-display text-2xl font-bold text-slate-900">
-              Menyiapkan Dunia Petualangan...
-            </h2>
-            <p className="text-sm font-semibold text-slate-600 mt-1">
-              Luna & Raka sedang membuka kemah bentuk!
-            </p>
-          </div>
-        ) : error && !gameState ? (
-          <div className="max-w-md mx-auto my-16 p-6 rounded-3xl bg-amber-50 border-4 border-amber-400 text-center">
-            <h2 className="font-display text-xl font-bold text-amber-950">
-              {error}
-            </h2>
-            <button
-              type="button"
-              onClick={fetchCurrentSession}
-              className="btn-3d mt-4 px-5 py-2.5 rounded-2xl bg-amber-400 text-slate-950 font-display font-bold cursor-pointer"
-            >
-              Coba Lagi
-            </button>
-          </div>
-        ) : gameState ? (
+        {gameState && (
           <>
             {/* 1. START SCREEN (HOME DENGAN GAMBAR ILUSTRASI 3D ASLI) */}
             {screen === 'start' && (
@@ -683,7 +647,7 @@ function ShapeHunterApp() {
               />
             )}
           </>
-        ) : null}
+        )}
       </main>
 
       {/* POP-UP LEADERBOARD & LENCANA KEMENANGAN */}

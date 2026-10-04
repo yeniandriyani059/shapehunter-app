@@ -1,14 +1,21 @@
 import React, { useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { Trophy, Medal, Sparkles, Flame, Target, X, RotateCcw } from 'lucide-react';
-import { KelompokRow } from '../lib/supabase.ts';
 import { TeamCampBadge } from './GameAssets3D.tsx';
 import { playClickSound } from '../utils/sound.ts';
+
+export interface CampScoreItem {
+  id: string | number;
+  nama_kelompok: string;
+  xp: number;
+  total_percobaan: number;
+  jawaban_benar: number;
+}
 
 interface PodiumCelebrationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  kelompokList: KelompokRow[];
+  kelompokList: CampScoreItem[];
   onResetSession?: () => void;
 }
 
@@ -83,7 +90,7 @@ export const PodiumCelebrationModal: React.FC<PodiumCelebrationModalProps> = ({
   const third = sorted[2];
   const fourth = sorted[3];
 
-  const getAccuracy = (k?: KelompokRow) => {
+  const getAccuracy = (k?: CampScoreItem) => {
     if (!k || k.total_percobaan === 0) return 100;
     return Math.round((k.jawaban_benar / k.total_percobaan) * 100);
   };
