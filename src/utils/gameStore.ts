@@ -50,76 +50,7 @@ export const INITIAL_GROUPS: Group[] = [
   },
 ];
 
-export const INITIAL_DISCOVERIES: Discovery[] = [
-  {
-    id: 101,
-    sessionId: 1,
-    groupId: 1,
-    studentName: 'Raka & Tim Harimau',
-    objectName: 'Jam Dinding Kelas',
-    photoUrl: 'https://images.unsplash.com/photo-1563861826100-9cb868fdbe1c?w=600&auto=format&fit=crop&q=80',
-    realShape: 'lingkaran',
-    expectedShape: 'lingkaran',
-    studentClaimedShape: 'lingkaran',
-    classifiedShape: null,
-    isLocked: false,
-    annotationsJson: '[]',
-    traitsVerified: false,
-    isProven: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 102,
-    sessionId: 1,
-    groupId: 2,
-    studentName: 'Luna & Tim Elang',
-    objectName: 'Penggaris Segitiga Kayu',
-    photoUrl: 'https://images.unsplash.com/photo-1588702547923-7093a6c3ba33?w=600&auto=format&fit=crop&q=80',
-    realShape: 'segitiga',
-    expectedShape: 'segitiga',
-    studentClaimedShape: 'segitiga',
-    classifiedShape: null,
-    isLocked: false,
-    annotationsJson: '[]',
-    traitsVerified: false,
-    isProven: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 103,
-    sessionId: 1,
-    groupId: 3,
-    studentName: 'Budi & Tim Gajah',
-    objectName: 'Ubin Keramik Kelas',
-    photoUrl: 'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=600&auto=format&fit=crop&q=80',
-    realShape: 'persegi',
-    expectedShape: 'persegi',
-    studentClaimedShape: 'persegi',
-    classifiedShape: null,
-    isLocked: false,
-    annotationsJson: '[]',
-    traitsVerified: false,
-    isProven: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 104,
-    sessionId: 1,
-    groupId: 4,
-    studentName: 'Siti & Tim Lumba-lumba',
-    objectName: 'Buku Cerita Matematika',
-    photoUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&auto=format&fit=crop&q=80',
-    realShape: 'persegi_panjang',
-    expectedShape: 'persegi_panjang',
-    studentClaimedShape: 'persegi_panjang',
-    classifiedShape: null,
-    isLocked: false,
-    annotationsJson: '[]',
-    traitsVerified: false,
-    isProven: false,
-    createdAt: new Date().toISOString(),
-  },
-];
+export const INITIAL_DISCOVERIES: Discovery[] = [];
 
 export function getDefaultGameState(): FullSessionState {
   const session: GameSession = {
@@ -142,11 +73,11 @@ export function getDefaultGameState(): FullSessionState {
     sessionId: 1,
     groupId: g.id,
     xp: 0,
-    totalDiscoveries: 1,
+    totalDiscoveries: 0,
     correctCount: 0,
     attemptCount: 0,
     bonusPoints: 0,
-    accuracy: 100,
+    accuracy: 0,
     updatedAt: new Date().toISOString(),
   }));
 
@@ -270,7 +201,8 @@ export function evaluateShapeAttempt(
   const selected = params.selectedShape.toLowerCase();
   const isCorrect = expected === selected;
 
-  const pointsAwarded = isCorrect ? 10 : 0;
+  const pointsAwarded = isCorrect ? 10 : -5;
+
 
   // Record attempt
   const newAttempt: GameAttempt = {
@@ -307,7 +239,8 @@ export function evaluateShapeAttempt(
     if (score.groupId === params.groupId) {
       const newAttempts = score.attemptCount + 1;
       const newCorrect = score.correctCount + (isCorrect ? 1 : 0);
-      const newXp = score.xp + pointsAwarded;
+      const pointsAwarded = isCorrect ? 10 : -5;
+      const newXp = Math.max(0, score.xp + pointsAwarded);
       const newAccuracy = Math.round((newCorrect / newAttempts) * 100);
 
       return {

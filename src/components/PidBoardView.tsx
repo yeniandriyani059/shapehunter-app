@@ -114,14 +114,14 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
 
   return (
     <div className="relative z-10 max-w-[1560px] mx-auto px-3 sm:px-5 py-3 flex flex-col gap-3.5">
-      {/* 1. DASBOR ARENA GURU (PID) — CLEAN ADVENTURE GAME HUD BAR */}
+      {/* 1. ARENA PERMAINAN — CLEAN ADVENTURE GAME HUD BAR */}
       <div className="rounded-[24px] bg-slate-900/90 backdrop-blur-md border-3 border-amber-400/80 shadow-[0_6px_0_#0F172A] px-4 py-2.5 text-white flex flex-wrap items-center justify-between gap-3">
-        {/* Left: Dasbor Arena Guru Title & Live Status */}
+        {/* Left: Arena Permainan Title & Live Status */}
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-display font-black text-xs sm:text-sm text-amber-300 uppercase tracking-wider">
-              Dasbor Arena Guru (PID)
+              Arena Permainan
             </span>
             <span className="text-xs text-slate-300 font-bold hidden sm:inline">
               · {sortedGroups.length} Kemah Bertanding

@@ -185,7 +185,7 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
     }
   };
 
-  const handleCreateSession = async (e: React.FormEvent) => {
+  const handleCreateSession = (e: React.FormEvent) => {
     e.preventDefault();
     playClickSound();
     setBusy(true);
@@ -193,35 +193,47 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
     const colors = ['blue', 'emerald', 'amber', 'rose'];
     const mascots = ['kapten_geo', 'putri_prisma', 'kapten_geo', 'putri_prisma'];
 
-    const groupsConfig = Array.from({ length: groupCount }).map((_, idx) => ({
+    const newGroups = Array.from({ length: groupCount }).map((_, idx) => ({
+      id: Date.now() + idx,
+      sessionId: 1,
       name: groupNames[idx]?.trim() || `Kelompok ${idx + 1}`,
       color: colors[idx % colors.length],
       mascot: mascots[idx % mascots.length],
       arenaSlot: idx + 1,
+      createdAt: new Date().toISOString(),
     }));
 
-    try {
-      const res = await fetch('/api/sessions', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({
-          title: newTitle,
-          timerDurationSeconds: timerMinutes * 60,
-          currentLevel: 1,
-          missionTitle: missionTitleInput,
-          missionTargetShape,
-          missionTargetCount,
-          groupsConfig,
-        }),
-      });
-      if (res.ok) {
-        const created = await res.json();
-        onStateChange(created);
-        setShowCreateForm(false);
-      }
-    } finally {
-      setBusy(false);
-    }
+    const newState: FullSessionState = {
+      ...state,
+      session: {
+        ...state.session,
+        title: newTitle,
+        timerDurationSeconds: timerMinutes * 60,
+        timerRemainingSeconds: timerMinutes * 60,
+        missionTitle: missionTitleInput,
+        missionTargetShape: missionTargetShape as ShapeType,
+        missionTargetCount: missionTargetCount,
+      },
+      groups: newGroups,
+      discoveries: [],
+      scores: newGroups.map((g) => ({
+        id: Date.now() + g.id,
+        sessionId: 1,
+        groupId: g.id,
+        xp: 0,
+        totalDiscoveries: 0,
+        correctCount: 0,
+        attemptCount: 0,
+        bonusPoints: 0,
+        accuracy: 0,
+        updatedAt: new Date().toISOString(),
+      })),
+      attempts: [],
+    };
+
+    onStateChange(newState);
+    setShowCreateForm(false);
+    setBusy(false);
   };
 
   // Rank groups by XP + Accuracy

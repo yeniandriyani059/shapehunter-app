@@ -85,12 +85,12 @@ export interface FullSessionState {
 }
 
 export const GAME_ASSETS = {
-  heroBanner: '/src/assets/images/hero_shape_hunters_3d_1790776655817.jpg',
-  rakaExplorer: '/src/assets/images/mascot_kapten_geo_3d_1790776671881.jpg',
-  lunaExplorer: '/src/assets/images/mascot_putri_prisma_3d_1790776685529.jpg',
-  kaptenGeo: '/src/assets/images/mascot_kapten_geo_3d_1790776671881.jpg',
-  putriPrisma: '/src/assets/images/mascot_putri_prisma_3d_1790776685529.jpg',
-  treasureChest: '/src/assets/images/treasure_chest_badge_3d_1790776698230.jpg',
+  heroBanner: '/assets/images/hero_shape_hunters_3d_1790776655817.jpg',
+  rakaExplorer: '/assets/images/mascot_kapten_geo_3d_1790776671881.jpg',
+  lunaExplorer: '/assets/images/mascot_putri_prisma_3d_1790776685529.jpg',
+  kaptenGeo: '/assets/images/mascot_kapten_geo_3d_1790776671881.jpg',
+  putriPrisma: '/assets/images/mascot_putri_prisma_3d_1790776685529.jpg',
+  treasureChest: '/assets/images/treasure_chest_badge_3d_1790776698230.jpg',
 } as const;
 
 export interface MissionLevelInfo {
