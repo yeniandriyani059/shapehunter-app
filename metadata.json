@@ -1,0 +1,6 @@
+{
+  "name": "SHAPE HUNTER — Temukan Bentuk di Sekitarmu!",
+  "description": "Game edukasi matematika petualangan 3D interaktif untuk siswa SD kelas 2. Eksplorasi benda nyata berbentuk lingkaran, segitiga, persegi, dan persegi panjang dengan mode Split-Screen Papan Interaksi Digital (PID) dan sinkronisasi real-time.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

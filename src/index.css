@@ -1,0 +1,205 @@
+@font-face {
+  font-family: 'Riffic';
+  src: url('./RifficFree-Bold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+}
+
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Riffic', 'Lilita One', 'Baloo 2', 'Fredoka', cursive, sans-serif;
+    --font-sans: 'Baloo 2', 'Nunito', 'Quicksand', 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #E0F2FE;
+    color: #0F172A;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-display, .font-riffic, .font-game {
+    font-family: 'Riffic', 'Lilita One', 'Baloo 2', 'Fredoka', cursive, sans-serif;
+    text-wrap: balance;
+  }
+
+  .btn-3d {
+    font-family: 'Riffic', 'Lilita One', 'Baloo 2', 'Fredoka', cursive, sans-serif;
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Tactile 3D Children's Game Buttons & Cards (compositor-only transforms) */
+.btn-3d {
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-3d:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.01);
+}
+
+.btn-3d:active:not(:disabled) {
+  transform: translateY(3px) scale(0.99);
+}
+
+/* Touch-first Pointer Events Draggable Card for Mission 1 */
+.pid-draggable-card {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  will-change: transform;
+}
+
+.card-spring-return {
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
+}
+
+@keyframes gentleShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px) rotate(-1.5deg); }
+  40% { transform: translateX(6px) rotate(1.5deg); }
+  60% { transform: translateX(-4px) rotate(-1deg); }
+  80% { transform: translateX(4px) rotate(1deg); }
+}
+
+.animate-gentle-shake {
+  animation: gentleShake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+}
+
+.animate-float-slow {
+  animation: floatSlow 3.2s ease-in-out infinite;
+}
+
+@keyframes popCelebrate {
+  0% { transform: scale(0.85); opacity: 0; }
+  60% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-pop-in {
+  animation: popCelebrate 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideUp {
+  0% { transform: translateY(100px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slideUp 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Magic Cauldron Gameplay Animations */
+@keyframes cauldronBubble {
+  0% {
+    transform: translateY(12px) scale(0.6);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.9;
+  }
+  80% {
+    transform: translateY(-20px) scale(1.15);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-28px) scale(1.35);
+    opacity: 0;
+  }
+}
+
+.animate-cauldron-bubble {
+  animation: cauldronBubble 1.8s ease-in infinite;
+}
+
+@keyframes flameFlicker {
+  0%, 100% {
+    transform: scaleY(1) scaleX(1);
+    opacity: 0.9;
+  }
+  30% {
+    transform: scaleY(1.12) scaleX(0.96);
+    opacity: 1;
+  }
+  65% {
+    transform: scaleY(0.92) scaleX(1.04);
+    opacity: 0.85;
+  }
+}
+
+.animate-flame-flicker {
+  animation: flameFlicker 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes cauldronVomit {
+  0% { transform: translate(0, 0) scale(1); }
+  15% { transform: translate(-8px, -4px) rotate(-3deg) scale(1.04); }
+  35% { transform: translate(8px, -6px) rotate(3deg) scale(1.06); }
+  55% { transform: translate(-6px, 2px) rotate(-2deg); }
+  75% { transform: translate(4px, -2px) rotate(1.5deg); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+.animate-cauldron-vomit {
+  animation: cauldronVomit 550ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes splashRipple {
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.animate-splash-ripple {
+  animation: splashRipple 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes magicBurstGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.7), 0 0 20px rgba(59, 130, 246, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 30px 15px rgba(234, 179, 8, 0.8), 0 0 60px rgba(168, 85, 247, 0.8);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0), 0 0 30px rgba(234, 179, 8, 0.4);
+  }
+}
+
+.animate-magic-glow {
+  animation: magicBurstGlow 1.4s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-slow,
+  .animate-gentle-shake,
+  .animate-pop-in,
+  .animate-cauldron-bubble,
+  .animate-flame-flicker,
+  .animate-cauldron-vomit,
+  .animate-splash-ripple,
+  .animate-magic-glow {
+    animation: none !important;
+  }
+}

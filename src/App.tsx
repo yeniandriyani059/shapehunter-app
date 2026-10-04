@@ -1,0 +1,707 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { AuthProvider } from './context/AuthContext.tsx';
+import {
+  FullSessionState,
+  SHAPE_LIST,
+  GAME_ASSETS,
+  MISSION_LEVELS,
+  formatCampDisplayName,
+} from './types/game.ts';
+import { PidBoardView } from './components/PidBoardView.tsx';
+import { StudentUploaderView } from './components/StudentUploaderView.tsx';
+import { TeacherDashboardView } from './components/TeacherDashboardView.tsx';
+import { ShapeMascot3D, GameAssetImage } from './components/ShapeMascot3D.tsx';
+import {
+  SchoolWorldBackdrop,
+  CharacterGuide,
+  GeometricMascotParade,
+  XpStarsDisplay,
+  TeamCampBadge,
+} from './components/GameAssets3D.tsx';
+import { supabase, isSupabaseConfigured } from './lib/supabase.ts';
+import { LeaderboardModal } from './components/LeaderboardModal.tsx';
+import { PodiumCelebrationModal } from './components/PodiumCelebrationModal.tsx';
+import { Trophy, Award, Map, Sparkles } from 'lucide-react';
+import {
+  playClickSound,
+  playPhotoIncomingSound,
+  playShapeLockSound,
+} from './utils/sound.ts';
+
+type GameScreen =
+  | 'start'
+  | 'arena'
+  | 'misi'
+  | 'koleksi'
+  | 'lencana'
+  | 'uploader'
+  | 'teacher';
+
+function ShapeHunterApp() {
+  const [screen, setScreen] = useState<GameScreen>('start');
+  const [gameState, setGameState] = useState<FullSessionState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(600);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [isVictoryPodiumOpen, setIsVictoryPodiumOpen] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const applyNewState = useCallback((nextState: FullSessionState) => {
+    if (!nextState || !nextState.session) return;
+    setGameState(nextState);
+    if (typeof nextState.session.timerRemainingSeconds === 'number') {
+      setRemainingSeconds(nextState.session.timerRemainingSeconds);
+    }
+  }, []);
+
+  const fetchCurrentSession = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch('/api/sessions/current');
+      if (!res.ok) {
+        throw new Error('Gagal memuat sesi permainan.');
+      }
+      const data: FullSessionState = await res.json();
+      applyNewState(data);
+    } catch (err: any) {
+      console.error('Fetch session error:', err);
+      setError('Koneksi terputus. Memuat ulang sesi...');
+    } finally {
+      setLoading(false);
+    }
+  }, [applyNewState]);
+
+  // Connect WebSocket for real-time synchronization
+  useEffect(() => {
+    fetchCurrentSession();
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+    let reconnectTimer: any = null;
+
+    const connectWs = () => {
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          // Connected
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.type === 'session:init' || message.type === 'session:updated') {
+              applyNewState(message.payload);
+            } else if (message.type === 'discovery:created') {
+              playPhotoIncomingSound();
+              if (message.payload?.state) {
+                applyNewState(message.payload.state);
+              }
+            } else if (
+              message.type === 'attempt:evaluated' ||
+              message.type === 'discovery:proven' ||
+              message.type === 'group:updated'
+            ) {
+              if (message.payload?.state) {
+                applyNewState(message.payload.state);
+              }
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        };
+
+        ws.onclose = () => {
+          reconnectTimer = setTimeout(connectWs, 3000);
+        };
+      } catch {
+        reconnectTimer = setTimeout(connectWs, 3000);
+      }
+    };
+
+    connectWs();
+
+    // Secondary polling backup
+    const pollInterval = setInterval(() => {
+      fetch('/api/sessions/current')
+        .then((r) => r.json())
+        .then((d) => applyNewState(d))
+        .catch(() => {});
+    }, 6000);
+
+    return () => {
+      clearInterval(pollInterval);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, [fetchCurrentSession, applyNewState]);
+
+  // Timer countdown
+  useEffect(() => {
+    if (!gameState || gameState.session.status !== 'playing') return;
+
+    const timer = setInterval(() => {
+      setRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [gameState?.session.status]);
+
+  const handleJoinSessionByCode = async (code: string) => {
+    try {
+      const res = await fetch(`/api/sessions/code/${code.trim()}`);
+      if (!res.ok) throw new Error('Kode sesi tidak ditemukan.');
+      const data = await res.json();
+      applyNewState(data);
+    } catch {
+      // ignore error
+    }
+    setScreen('arena');
+  };
+
+  const handleSelectLevel = async (levelNumber: number) => {
+    if (!gameState) return;
+    try {
+      const levelInfo = Object.values(MISSION_LEVELS).find((m) => m.level === levelNumber);
+      const res = await fetch(`/api/sessions/${gameState.session.id}/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentLevel: levelNumber,
+          missionTitle: levelInfo?.title || `Misi ${levelNumber}`,
+        }),
+      });
+      const data = await res.json();
+      if (data) {
+        applyNewState(data);
+      }
+    } catch {
+      // ignore
+    }
+    setScreen('arena');
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col relative text-slate-900 select-none">
+      {/* Illustrated 3D Chibi Elementary School Adventure World Backdrop */}
+      <SchoolWorldBackdrop />
+
+      {/* HEADER ATAS: BERSIH, MINIMALIS, & PROFESIONAL */}
+      <header className="relative z-30 flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-3 bg-white/95 backdrop-blur-md border-b-4 border-amber-400 shadow-xs sticky top-0">
+        {/* Left: Tombol Home & Judul Game (Tanpa Emoji) */}
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              playClickSound();
+              setScreen('start');
+            }}
+            title="Kembali ke Beranda Utama"
+            className="px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-2xl bg-gradient-to-b from-amber-300 via-amber-400 to-amber-500 hover:from-amber-200 hover:to-amber-400 text-slate-950 border-2 border-amber-600 shadow-[0_3px_0_#B45309] active:translate-y-0.5 active:shadow-[0_1px_0_#B45309] font-display font-black text-xs sm:text-sm tracking-wide cursor-pointer transition-all"
+          >
+            Home
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              playClickSound();
+              setScreen('start');
+            }}
+            className="flex items-baseline flex-wrap gap-1 sm:gap-2 text-left cursor-pointer hover:opacity-90 transition-opacity"
+          >
+            <span className="font-display font-black text-base sm:text-2xl tracking-tight bg-gradient-to-r from-amber-600 via-sky-600 to-emerald-600 bg-clip-text text-transparent">
+              SHAPE HUNTER
+            </span>
+            <span className="font-display font-bold text-[11px] sm:text-xs text-amber-700 tracking-normal whitespace-nowrap">
+              by Bu Guru Yennia
+            </span>
+          </button>
+        </div>
+
+        {/* Right: HANYA Tombol Ruang Guru (Tanpa Emoji) */}
+        <div className="flex items-center">
+          <button
+            type="button"
+            onClick={() => {
+              playClickSound();
+              setScreen(screen === 'teacher' ? 'start' : 'teacher');
+            }}
+            className={`px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-2xl font-display font-bold text-xs sm:text-sm cursor-pointer transition-all ${
+              screen === 'teacher'
+                ? 'bg-slate-900 text-amber-300 shadow-xs border-2 border-slate-900'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-2 border-slate-300 shadow-xs'
+            }`}
+          >
+            Ruang Guru
+          </button>
+        </div>
+      </header>
+
+      {/* MAIN GAME WORLD STAGE */}
+      <main className="relative z-10 flex-1 flex flex-col">
+        {loading ? (
+          <div className="max-w-md mx-auto my-16 p-8 rounded-[32px] bg-white/95 border-4 border-sky-400 shadow-[0_10px_0_#38BDF8] text-center">
+            <div className="flex justify-center mb-4">
+              <GeometricMascotParade size={52} />
+            </div>
+            <h2 className="font-display text-2xl font-bold text-slate-900">
+              Menyiapkan Dunia Petualangan...
+            </h2>
+            <p className="text-sm font-semibold text-slate-600 mt-1">
+              Luna & Raka sedang membuka kemah bentuk!
+            </p>
+          </div>
+        ) : error && !gameState ? (
+          <div className="max-w-md mx-auto my-16 p-6 rounded-3xl bg-amber-50 border-4 border-amber-400 text-center">
+            <h2 className="font-display text-xl font-bold text-amber-950">
+              {error}
+            </h2>
+            <button
+              type="button"
+              onClick={fetchCurrentSession}
+              className="btn-3d mt-4 px-5 py-2.5 rounded-2xl bg-amber-400 text-slate-950 font-display font-bold cursor-pointer"
+            >
+              Coba Lagi
+            </button>
+          </div>
+        ) : gameState ? (
+          <>
+            {/* 1. START SCREEN (HOME DENGAN GAMBAR ILUSTRASI 3D ASLI) */}
+            {screen === 'start' && (
+              <div className="max-w-5xl mx-auto px-4 py-6 sm:py-10 flex-1 flex flex-col items-center justify-center animate-fade-in">
+                <div className="w-full rounded-[36px] bg-white/95 border-4 border-amber-400 shadow-[0_12px_0_#F59E0B] overflow-hidden grid grid-cols-1 lg:grid-cols-12 items-center">
+                  {/* Sisi Kiri: Gambar Ilustrasi 3D Sampul Aslinya */}
+                  <div className="lg:col-span-6 relative h-64 sm:h-80 lg:h-full min-h-[300px] bg-sky-100 overflow-hidden">
+                    <GameAssetImage
+                      src={GAME_ASSETS.heroBanner}
+                      alt="Shape Hunter Petualangan Bangun Datar"
+                      className="w-full h-full object-cover object-center"
+                    />
+
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 via-slate-950/30 to-transparent p-5 text-white">
+                      <GeometricMascotParade size={46} />
+                    </div>
+                  </div>
+
+                  {/* Sisi Kanan: Judul & Tombol Mulai Petualangan */}
+                  <div className="lg:col-span-6 p-6 sm:p-8 flex flex-col gap-5 text-center lg:text-left">
+                    <div>
+                      <span className="inline-block font-display font-bold text-xs sm:text-sm text-sky-700 tracking-wider uppercase mb-1">
+                        Petualangan Matematika Kelas 2 SD
+                      </span>
+                      <h1 className="font-display text-3xl sm:text-5xl font-black text-slate-900 leading-tight">
+                        SHAPE HUNTER
+                      </h1>
+                      <div className="mt-1 mb-2 flex justify-center lg:justify-start">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100/90 border border-amber-300 text-amber-900 font-display font-bold text-xs sm:text-sm shadow-xs">
+                          ✨ Karya Bu Guru Yennia
+                        </span>
+                      </div>
+                      <p className="font-display text-xl sm:text-2xl font-bold text-amber-600 mt-1">
+                        “Temukan Bentuk di Sekitarmu!”
+                      </p>
+                    </div>
+
+                    {/* Luna & Raka Welcome Guides */}
+                    <div className="flex flex-col gap-2.5">
+                      <CharacterGuide
+                        character="luna"
+                        message="Yuk, cari benda berbentuk Lingkaran, Segitiga, Persegi, dan Persegi Panjang di sekolah!"
+                        compact
+                      />
+                      <CharacterGuide
+                        character="raka"
+                        message="Potret temuanmu lalu mainkan bersama tim di Papan Interaksi Digital!"
+                        compact
+                      />
+                    </div>
+
+                    {/* Tombol Mulai & Kamera */}
+                    <div className="flex flex-col sm:flex-row items-center gap-3.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playShapeLockSound();
+                          setScreen('arena');
+                        }}
+                        className="btn-3d w-full sm:flex-1 py-4 px-6 rounded-[24px] bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white border-2 border-emerald-400 shadow-[0_7px_0_#047857] font-display text-lg sm:text-xl font-black tracking-wide cursor-pointer"
+                      >
+                        MULAI PETUALANGAN
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playClickSound();
+                          setScreen('uploader');
+                        }}
+                        className="btn-3d w-full sm:w-auto py-4 px-6 rounded-[24px] bg-gradient-to-b from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white border-2 border-sky-400 shadow-[0_7px_0_#0369A1] font-display text-base sm:text-lg font-bold tracking-wide cursor-pointer"
+                      >
+                        KAMERA SISWA
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 2. ARENA PID (PAPAN INTERAKSI DIGITAL KEMAH BERTANDING) */}
+            {screen === 'arena' && (
+              <PidBoardView
+                state={gameState}
+                remainingSeconds={remainingSeconds}
+                onStateChange={applyNewState}
+                onNavigateUploader={() => setScreen('uploader')}
+                onOpenMissionModal={() => setScreen('misi')}
+                onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
+              />
+            )}
+
+            {/* 3. VISUAL MISSION SCREEN (PETA MISI PETUALANGAN) */}
+            {screen === 'misi' && (
+              <div className="max-w-5xl mx-auto px-4 py-6 flex flex-col gap-6 animate-fade-in">
+                <div className="rounded-[32px] bg-white/95 border-4 border-amber-400 shadow-[0_10px_0_#F59E0B] p-6">
+                  {/* Top Bar with 'Kembali ke Beranda' and 'Papan Skor & Lencana' Buttons */}
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b-2 border-slate-100">
+                    <div>
+                      <h1 className="font-display text-2xl sm:text-3xl font-black text-slate-900">
+                        Peta Misi Petualangan
+                      </h1>
+                      <p className="text-sm sm:text-base font-semibold text-slate-600 mt-0.5">
+                        Pilih misi yang ingin kamu jelajahi bersama kemahmu!
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playClickSound();
+                          setScreen('start');
+                        }}
+                        className="btn-3d px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-display font-bold text-sm border border-slate-300 cursor-pointer shadow-xs"
+                      >
+                        Kembali ke Beranda
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playClickSound();
+                          setIsLeaderboardOpen(true);
+                        }}
+                        className="btn-3d px-4 py-2 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-sm shadow-[0_3px_0_#B45309] flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Trophy className="w-4 h-4 text-slate-950" />
+                        <span>Papan Skor & Lencana</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3 Mission Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {Object.values(MISSION_LEVELS).map((m) => {
+                      const isActive = gameState.session.currentLevel === m.level;
+                      return (
+                        <div
+                          key={m.level}
+                          onClick={() => handleSelectLevel(m.level)}
+                          className={`rounded-3xl border-4 p-5 flex flex-col justify-between transition-all cursor-pointer ${
+                            isActive
+                              ? 'border-amber-400 bg-amber-50/90 shadow-[0_8px_0_#B45309] scale-102'
+                              : 'border-slate-200 bg-white hover:border-sky-300 shadow-md hover:-translate-y-1'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between mb-3">
+                              <span
+                                className={`px-3 py-1 rounded-full font-display font-black text-xs uppercase tracking-wider ${
+                                  isActive
+                                    ? 'bg-amber-400 text-slate-950'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                Level {m.level}
+                              </span>
+                              {isActive && (
+                                <span className="flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                  Aktif
+                                </span>
+                              )}
+                            </div>
+
+                            <h3 className="font-display font-bold text-lg text-slate-900 mb-1">
+                              {m.title}
+                            </h3>
+                            <p className="text-xs sm:text-sm font-semibold text-slate-600 mb-4">
+                              {m.shortLabel}
+                            </p>
+
+                            <div className="space-y-1.5 mb-4">
+                              {m.storySteps.map((step, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex items-start gap-2 text-xs font-semibold text-slate-700"
+                                >
+                                  <span className="w-4 h-4 rounded-full bg-sky-200 text-sky-900 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                                    {idx + 1}
+                                  </span>
+                                  <span>{step}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            className="w-full py-3 rounded-2xl bg-gradient-to-b from-amber-400 to-amber-500 text-slate-950 font-display font-bold text-base shadow-[0_4px_0_#B45309] cursor-pointer"
+                          >
+                            Mainkan {m.badgeText}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Teacher Mission Banner */}
+                  <div className="mt-6 rounded-3xl bg-sky-50 border-3 border-sky-300 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <CharacterGuide
+                      character="luna"
+                      message={`Pesan Misi Guru: "${gameState.session.missionTitle}"`}
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 4. KOLEKSI TEMUAN BANGUN DATAR */}
+            {screen === 'koleksi' && (
+              <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col gap-6 animate-fade-in">
+                <div className="rounded-[32px] bg-white/95 border-4 border-sky-400 shadow-[0_10px_0_#38BDF8] p-6">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b-2 border-slate-100">
+                    <div>
+                      <h1 className="font-display text-2xl sm:text-3xl font-black text-slate-900">
+                        Koleksi Temuan Bangun Datar
+                      </h1>
+                      <p className="text-sm sm:text-base font-semibold text-slate-600 mt-0.5">
+                        Lihat benda-benda nyata yang telah dipotret oleh semua kemah!
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playClickSound();
+                          setScreen('uploader');
+                        }}
+                        className="btn-3d px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white font-display font-bold text-sm shadow-[0_3px_0_#047857] cursor-pointer"
+                      >
+                        📸 Potret Benda Baru
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playClickSound();
+                          setScreen('arena');
+                        }}
+                        className="btn-3d px-4 py-2 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-sm shadow-[0_3px_0_#B45309] cursor-pointer"
+                      >
+                        Ke Arena Kemah
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Kategori 4 Bangun Datar */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {SHAPE_LIST.map((shape) => {
+                      const shapeDiscoveries = gameState.discoveries.filter(
+                        (d) =>
+                          (d.classifiedShape === shape.id ||
+                            d.expectedShape === shape.id) &&
+                          d.isLocked
+                      );
+
+                      return (
+                        <div
+                          key={shape.id}
+                          className="rounded-3xl border-3 border-slate-200 bg-slate-50/80 p-4 flex flex-col gap-3 shadow-xs"
+                        >
+                          <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200">
+                            <ShapeMascot3D shape={shape.id} size={40} />
+                            <div>
+                              <h3 className="font-display font-bold text-sm text-slate-900">
+                                {shape.name}
+                              </h3>
+                              <span className="text-[11px] font-bold text-slate-500">
+                                {shapeDiscoveries.length} Benda Terbukti
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                            {shapeDiscoveries.length === 0 ? (
+                              <div className="py-6 text-center text-xs text-slate-400 font-semibold italic">
+                                Belum ada benda yang terbukti di pulau ini.
+                              </div>
+                            ) : (
+                              shapeDiscoveries.map((disc) => {
+                                const grp = gameState.groups.find(
+                                  (g) => g.id === disc.groupId
+                                );
+                                return (
+                                  <div
+                                    key={disc.id}
+                                    className="rounded-2xl bg-white p-2 border border-slate-200 shadow-2xs flex items-center gap-2"
+                                  >
+                                    <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-100 shrink-0">
+                                      <img
+                                        src={disc.photoUrl}
+                                        alt={disc.objectName}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <h4 className="font-display font-bold text-xs text-slate-900 truncate">
+                                        {disc.objectName}
+                                      </h4>
+                                      <p className="text-[10px] text-slate-500 truncate">
+                                        Oleh: {disc.studentName} (
+                                        {grp ? formatCampDisplayName(grp.name) : ''})
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 5. BADGES & SHAPE FRIENDS ("LENCANA") */}
+            {screen === 'lencana' && (
+              <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col gap-6 animate-fade-in">
+                {/* Treasure Chest & Team Badges */}
+                <div className="rounded-[32px] bg-white/95 border-4 border-amber-400 shadow-[0_10px_0_#F59E0B] p-6">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-2xl overflow-hidden border-3 border-amber-400 shadow-md shrink-0">
+                        <GameAssetImage
+                          src={GAME_ASSETS.treasureChest}
+                          alt="Peti Harta Karun"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div>
+                        <h2 className="font-display text-2xl font-black text-slate-900">
+                          Peti Harta Karun & Lencana Petualang
+                        </h2>
+                        <p className="text-xs sm:text-sm font-semibold text-slate-600">
+                          Buka lencana keren bersama kemahmu saat berhasil mengumpulkan benda!
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playClickSound();
+                        setIsLeaderboardOpen(true);
+                      }}
+                      className="btn-3d px-4 py-2 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-display font-bold text-sm shadow-[0_3px_0_#B45309] flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trophy className="w-4 h-4 text-slate-950" />
+                      <span>Lihat Peringkat</span>
+                    </button>
+                  </div>
+
+                  {/* 4 Sahabat Bangun Datar 3D */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                    {SHAPE_LIST.map((shape) => (
+                      <div
+                        key={shape.id}
+                        className="rounded-3xl border-3 border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 text-center flex flex-col items-center gap-2 shadow-sm"
+                      >
+                        <ShapeMascot3D shape={shape.id} size={72} />
+                        <h3 className="font-display font-bold text-base text-slate-900 mt-1">
+                          {shape.name}
+                        </h3>
+                        <span className="text-xs font-display font-semibold text-amber-600 bg-amber-100 px-2.5 py-0.5 rounded-full">
+                          {shape.mascotName}
+                        </span>
+                        <p className="text-xs text-slate-600 font-medium">
+                          {shape.sidesCount} Sisi · {shape.cornersCount} Sudut
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 6. FOTO TEMUANMU (KAMERA SISWA DENGAN SUPABASE STORAGE & GEMINI AI) */}
+            {screen === 'uploader' && (
+              <StudentUploaderView
+                state={gameState}
+                onDiscoveryUploaded={applyNewState}
+                onJoinSessionByCode={handleJoinSessionByCode}
+                onSwitchToPid={() => setScreen('arena')}
+                onSwitchToHome={() => setScreen('start')}
+              />
+            )}
+
+            {/* 7. RUANG GURU (TEACHER DASHBOARD) */}
+            {screen === 'teacher' && (
+              <TeacherDashboardView
+                state={gameState}
+                remainingSeconds={remainingSeconds}
+                onStateChange={applyNewState}
+                onSwitchToPid={() => setScreen('arena')}
+              />
+            )}
+          </>
+        ) : null}
+      </main>
+
+      {/* POP-UP LEADERBOARD & LENCANA KEMENANGAN */}
+      {gameState && (
+        <LeaderboardModal
+          isOpen={isLeaderboardOpen}
+          onClose={() => setIsLeaderboardOpen(false)}
+          state={gameState}
+        />
+      )}
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <ShapeHunterApp />
+    </AuthProvider>
+  );
+}
