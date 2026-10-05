@@ -253,7 +253,7 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
 
         <div className="flex items-center gap-2 shrink-0">
           <span className="px-3 py-1 rounded-xl bg-amber-400 text-slate-950 font-display font-bold text-xs shadow-xs">
-            {provenCount}/{groupDiscoveries.length} Kartu Terbukti & Terkunci
+            {provenCount}/{groupDiscoveries.length} Kartu Terbukti
           </span>
         </div>
       </div>
@@ -267,8 +267,8 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
           </h4>
           <span className="text-xs text-slate-500 font-semibold">
             {provenCount === groupDiscoveries.length && groupDiscoveries.length > 0
-              ? 'Semua kartu telah terbukti!'
-              : 'Ketuk kartu untuk membuktikan'}
+              ? '⭐ Semua kartu telah terbukti!'
+              : `${Math.max(0, groupDiscoveries.length - provenCount)} kartu belum dibuktikan (Ketuk untuk membuktikan)`}
           </span>
         </div>
 
@@ -287,7 +287,7 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {groupDiscoveries.map((disc, idx) => {
-              const isProven = disc.traitsVerified || disc.isProven;
+              const isProven = Boolean(disc.isProven === true && disc.traitsVerified === true);
               const cardShape =
                 SHAPE_DEFINITIONS[
                   (disc.realShape ||
@@ -297,9 +297,9 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
 
               return (
                 <div
-                  key={`m2-disc-${disc.id}`}
+                  key={`m2-disc-${disc.id || idx}`}
                   onClick={() => !isProven && handleOpenProveModal(disc)}
-                  className={`group relative rounded-3xl border-3 p-3 flex flex-col justify-between transition-all ${
+                  className={`group relative rounded-3xl border-3 p-3.5 flex flex-col justify-between transition-all select-none ${
                     isProven
                       ? 'border-emerald-400 bg-emerald-50/90 shadow-sm cursor-default'
                       : 'border-amber-300 bg-white hover:border-amber-500 hover:shadow-lg hover:-translate-y-1 cursor-pointer active:scale-98'
@@ -311,10 +311,10 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
                   }
                 >
                   {/* Photo with Badge */}
-                  <div className="relative aspect-4/3 rounded-2xl overflow-hidden bg-slate-100 mb-2.5 border border-slate-200">
+                  <div className="relative aspect-4/3 rounded-2xl overflow-hidden bg-slate-100 mb-2.5 border border-slate-200 shadow-inner">
                     <GameAssetImage
-                      src={disc.photoUrl}
-                      alt={disc.objectName}
+                      src={disc.photoUrl || (disc as any).image_url || (disc as any).imageUrl || ''}
+                      alt={disc.objectName || (disc as any).nama_benda || 'Benda Temuan'}
                       className="w-full h-full object-cover transition-transform group-hover:scale-105"
                     />
 
@@ -323,13 +323,13 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
                       {cardShape.symbol} {cardShape.name}
                     </span>
 
-                    {/* Proven Status Badge Overlay */}
+                    {/* Proven Status Badge Overlay ONLY when actually proven */}
                     {isProven && (
-                      <div className="absolute inset-0 bg-emerald-950/30 backdrop-blur-[1px] flex flex-col items-center justify-center p-2 text-center">
-                        <div className="w-9 h-9 rounded-2xl bg-emerald-500 text-white flex items-center justify-center text-lg shadow-md mb-1 animate-pop-in">
-                          <CheckCircle2 className="w-5 h-5" />
+                      <div className="absolute inset-0 bg-emerald-950/35 backdrop-blur-[1px] flex flex-col items-center justify-center p-2 text-center animate-pop-in">
+                        <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center text-lg shadow-md mb-1">
+                          <CheckCircle2 className="w-6 h-6" />
                         </div>
-                        <span className="bg-emerald-600 text-white text-[10px] font-display font-bold px-2 py-0.5 rounded-full shadow-xs">
+                        <span className="bg-emerald-600 text-white text-[10px] font-display font-bold px-2.5 py-0.5 rounded-full shadow-xs">
                           Terbukti
                         </span>
                       </div>
@@ -337,9 +337,9 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
                   </div>
 
                   {/* Metadata */}
-                  <div className="text-center">
+                  <div className="text-center px-1">
                     <h5 className="font-display text-sm font-bold text-slate-900 truncate">
-                      {disc.objectName}
+                      {disc.objectName || (disc as any).nama_benda || 'Benda Temuan'}
                     </h5>
                     <p className="text-[11px] font-bold text-sky-700 truncate mt-0.5 flex items-center justify-center gap-1">
                       <span>👤</span>
@@ -361,10 +361,10 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
                           e.stopPropagation();
                           handleOpenProveModal(disc);
                         }}
-                        className="btn-3d w-full py-2 px-2 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-display font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_2px_0_#B45309] cursor-pointer"
+                        className="btn-3d w-full py-2.5 px-2 rounded-xl bg-gradient-to-b from-amber-400 via-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-display font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_3px_0_#B45309] cursor-pointer"
                       >
-                        <Search className="w-3.5 h-3.5 text-slate-950" />
-                        <span>Buktikan! (+15 XP)</span>
+                        <Search className="w-4 h-4 text-slate-950 shrink-0" />
+                        <span>🔍 Buktikan Bentuk Ini (+15 XP)</span>
                       </button>
                     )}
                   </div>

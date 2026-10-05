@@ -193,16 +193,16 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
         (currentSavedState.discoveries || []).forEach((d) => discMap.set(d.id, d));
         (groupDiscoveries || []).forEach((d) => discMap.set(d.id, d));
 
-        // 2. Update the target dropped discovery to be grouped into this island with Terbukti status
+        // 2. Update the target dropped discovery to be grouped into this island (remains open for Mission 2 proof)
         const currentDisc = discMap.get(disc.id) || disc;
         discMap.set(disc.id, {
           ...currentDisc,
           island: targetShape,
           targetShape: targetShape,
           classifiedShape: targetShape,
-          isLocked: true,
-          isProven: true,
-          traitsVerified: true,
+          isLocked: false, // Remains open so student can prove it in Mission 2
+          isProven: false, // Proven in Mission 2 by counting sides & corners
+          traitsVerified: false,
           xp: typeof currentDisc.xp === 'number' && currentDisc.xp > 0 ? currentDisc.xp : 10,
         });
 
@@ -238,7 +238,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
           levelAtAttempt: currentSavedState.session.currentLevel,
           pointsAwarded: 10,
           bonusAwarded: 0,
-          reasonText: `Benda dimasukkan ke Pulau ${targetShapeDef.name} dan terbukti cocok!`,
+          reasonText: `Benda dikelompokkan ke Pulau ${targetShapeDef.name}!`,
           createdAt: new Date().toISOString(),
         };
 
@@ -269,18 +269,18 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
         if (isSupabaseConfigured) {
           supabase
             .from('kartu_temuan')
-            .update({ is_proven: true, real_shape: targetShape })
+            .update({ real_shape: targetShape, is_proven: false })
             .eq('id', disc.id)
             .then(() => {})
             .catch((dbErr) => {
-              console.warn('Supabase update is_proven notice:', dbErr);
+              console.warn('Supabase update shape notice:', dbErr);
             });
         }
 
         if (onSetGuideMessage) {
           onSetGuideMessage({
             mood: 'celebrating',
-            text: `HEBAT! "${disc.objectName || (disc as any).nama_benda || 'Benda'}" langsung masuk ke Pulau ${targetShapeDef.name} dan berstatus Terbukti! (+10 XP)`,
+            text: `HEBAT! "${disc.objectName || (disc as any).nama_benda || 'Benda'}" berhasil masuk ke Pulau ${targetShapeDef.name}! (+10 XP)`,
             pointsEarned: 10,
           });
         }
@@ -761,8 +761,8 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
                               <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded-lg bg-amber-400 text-slate-950 font-display font-black text-[9px] shadow-xs">
                                 ⭐+{lockedXp}
                               </span>
-                              <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-lg bg-emerald-600 text-white font-display font-black text-[8px] shadow-xs flex items-center gap-0.5">
-                                ✅ Terbukti
+                              <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-lg bg-sky-600 text-white font-display font-black text-[8px] shadow-xs flex items-center gap-0.5">
+                                📍 Terkelompok
                               </span>
                             </div>
                             <div className="text-center px-0.5">
@@ -780,10 +780,10 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
                         );
                       })}
                     </div>
-                    <div className="flex items-center justify-between text-[11px] font-display font-bold text-emerald-950 px-1 pt-0.5">
+                    <div className="flex items-center justify-between text-[11px] font-display font-bold text-sky-950 px-1 pt-0.5">
                       <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span>{lockedInThisZone.length} Benda Terbukti & Terkunci</span>
+                        <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                        <span>{lockedInThisZone.length} Benda Terkelompok</span>
                       </span>
                       <span className="text-[10px] text-slate-500 font-semibold">+ Tambah lagi</span>
                     </div>

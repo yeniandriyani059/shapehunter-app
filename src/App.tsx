@@ -107,7 +107,8 @@ function ShapeHunterApp() {
 
               const existing = prev?.discoveries?.find((d) => d.id === cardId);
               const shape = (card.real_shape || 'lingkaran') as ShapeType;
-              const isProven = Boolean(card.is_proven);
+              // Strict Mission 2 verification check: only proven if verified through detective counting in active session
+              const isProven = Boolean(existing?.isProven && existing?.traitsVerified);
               const cardXp = typeof card.xp === 'number' && card.xp > 0 ? card.xp : (Number(card.xp) || 10);
               const studentName = (card as any).penemu || (card as any).student_name || (card as any).nama_siswa || (card as any).nama || existing?.studentName || 'Tanpa Nama';
 
@@ -124,7 +125,7 @@ function ShapeHunterApp() {
                 classifiedShape: existing?.classifiedShape ?? (existing?.island ?? null),
                 island: existing?.island ?? existing?.classifiedShape ?? null,
                 targetShape: existing?.targetShape ?? existing?.island ?? null,
-                isLocked: existing?.isLocked ?? false,
+                isLocked: isProven,
                 annotationsJson: existing?.annotationsJson ?? '[]',
                 traitsVerified: isProven,
                 isProven: isProven,
@@ -267,7 +268,7 @@ function ShapeHunterApp() {
                   classifiedShape: resolvedIsland,
                   island: resolvedIsland,
                   targetShape: resolvedIsland,
-                  isLocked: Boolean(resolvedIsland || d.isLocked),
+                  isLocked: isProven,
                 };
               }
               return d;
