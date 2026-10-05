@@ -23,6 +23,8 @@ import {
   playShapeLockSound,
   playTryAgainSound,
 } from '../utils/sound.ts';
+import { loadSavedGameState, saveGameState } from '../utils/gameStore.ts';
+import { supabase, isSupabaseConfigured } from '../supabaseClient.ts';
 
 interface ProveModalProps {
   isOpen: boolean;
@@ -93,24 +95,11 @@ export const ProveModal: React.FC<ProveModalProps> = ({
     setFeedback({ status: null, message: '' });
 
     try {
-      const res = await fetch('/api/attempts/prove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          groupId,
-          discoveryId: discovery.id,
-          sides,
-          corners,
-        }),
-      });
+      const isCorrect =
+        sides === targetShapeDef.sidesCount &&
+        corners === targetShapeDef.cornersCount;
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Gagal memeriksa jawaban');
-      }
-
-      if (data.result.isCorrect) {
+      if (isCorrect) {
         playShapeLockSound();
         try {
           confetti({
@@ -122,17 +111,43 @@ export const ProveModal: React.FC<ProveModalProps> = ({
           // ignore confetti error
         }
 
-        const totalPoints =
-          (data.result.pointsAwarded || 10) + (data.result.bonusAwarded || 5);
+        const totalPoints = 15;
         setFeedback({
           status: 'correct',
           message: `HEBAT SEKALI! Terbukti "${discovery.objectName}" memiliki ${sides} sisi dan ${corners} titik sudut!`,
           pointsAwarded: totalPoints,
         });
 
-        if (data.state) {
-          onProvedSuccess(data.state, data.result);
+        // Sync to Supabase table public.kartu_temuan
+        if (isSupabaseConfigured) {
+          try {
+            await supabase
+              .from('kartu_temuan')
+              .update({ is_proven: true })
+              .eq('id', discovery.id);
+          } catch (dbErr) {
+            console.warn('Supabase update is_proven notice:', dbErr);
+          }
         }
+
+        const currentState = loadSavedGameState();
+        const updatedDiscoveries = currentState.discoveries.map((d) =>
+          d.id === discovery.id
+            ? { ...d, traitsVerified: true, isProven: true }
+            : d
+        );
+        const updatedScores = currentState.scores.map((s) =>
+          s.groupId === groupId
+            ? { ...s, xp: s.xp + totalPoints, bonusPoints: s.bonusPoints + totalPoints }
+            : s
+        );
+        const newState = {
+          ...currentState,
+          discoveries: updatedDiscoveries,
+          scores: updatedScores,
+        };
+        saveGameState(newState);
+        onProvedSuccess(newState, { isCorrect: true, pointsAwarded: 10, bonusAwarded: 5 });
       } else {
         playTryAgainSound();
         const motivationalMessages = [

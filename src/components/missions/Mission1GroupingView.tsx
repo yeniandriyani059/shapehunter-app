@@ -15,6 +15,8 @@ import {
   playTryAgainSound,
 } from '../../utils/sound.ts';
 import { Sparkles, RotateCcw } from 'lucide-react';
+import { evaluateShapeAttempt, loadSavedGameState } from '../../utils/gameStore.ts';
+import { supabase, isSupabaseConfigured } from '../../supabaseClient.ts';
 
 interface ActiveCardDrag {
   discoveryId: number;
@@ -158,27 +160,14 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
       const targetShapeDef = SHAPE_DEFINITIONS[targetShape];
 
       try {
-        const response = await fetch('/api/attempts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId,
-            groupId: group.id,
-            discoveryId: disc.id,
-            selectedShape: targetShape,
-            levelAtAttempt: 1,
-            annotationsJson: JSON.stringify(customAnnotations),
-            traitsVerified: false,
-            reasonText: customTrait || null,
-          }),
+        const currentSavedState = loadSavedGameState();
+        const evaluation = evaluateShapeAttempt(currentSavedState, {
+          groupId: group.id,
+          discoveryId: disc.id,
+          selectedShape: targetShape,
         });
 
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Coba periksa lagi ya!');
-        }
-
-        if (data.result.isCorrect) {
+        if (evaluation.isCorrect) {
           playShapeLockSound();
           setSparkleZoneShape(targetShape);
           setTimeout(() => setSparkleZoneShape(null), 1400);
@@ -193,14 +182,23 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
             // ignore confetti error
           }
 
-          const totalEarned =
-            data.result.pointsAwarded + (data.result.bonusAwarded || 0);
+          // Sync to Supabase table public.kartu_temuan
+          if (isSupabaseConfigured) {
+            try {
+              await supabase
+                .from('kartu_temuan')
+                .update({ is_proven: true })
+                .eq('id', disc.id);
+            } catch (dbErr) {
+              console.warn('Supabase update is_proven notice:', dbErr);
+            }
+          }
 
           if (onSetGuideMessage) {
             onSetGuideMessage({
               mood: 'celebrating',
               text: `HEBAT! "${disc.objectName}" cocok di Pulau ${targetShapeDef.name}!`,
-              pointsEarned: totalEarned,
+              pointsEarned: evaluation.pointsAwarded,
             });
           }
 
@@ -224,8 +222,8 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
           }
         }
 
-        if (data.state) {
-          onAttemptSubmitted(data.state);
+        if (evaluation.newState) {
+          onAttemptSubmitted(evaluation.newState);
         }
       } catch (err: any) {
         console.error('Failed to submit shape check:', err);

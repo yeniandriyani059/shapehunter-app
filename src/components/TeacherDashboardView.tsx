@@ -26,6 +26,11 @@ import {
 import { useAuth } from '../context/AuthContext.tsx';
 import { GameAssetImage, ShapeMascot3D } from './ShapeMascot3D.tsx';
 import { playClickSound } from '../utils/sound.ts';
+import { saveGameState, resetGameSession } from '../utils/gameStore.ts';
+import {
+  updateDiscoveryShapeInSupabase,
+  resetKartuTemuanInSupabase,
+} from '../supabaseClient.ts';
 
 interface TeacherDashboardViewProps {
   state: FullSessionState;
@@ -88,22 +93,17 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
     playClickSound();
     setSavingGroupId(groupId);
     try {
-      const res = await fetch(`/api/groups/${groupId}`, {
-        method: 'PATCH',
-        headers: authHeaders(),
-        body: JSON.stringify({ name: trimmed }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.state) {
-          onStateChange(data.state);
-        }
-        setEditingGroupId(null);
-        setEditingGroupName('');
-      } else {
-        const err = await res.json();
-        alert(err.error || 'Gagal mengubah nama kelompok');
-      }
+      const updatedGroups = groups.map((g) =>
+        g.id === groupId ? { ...g, name: trimmed } : g
+      );
+      const newState: FullSessionState = {
+        ...state,
+        groups: updatedGroups,
+      };
+      saveGameState(newState);
+      onStateChange(newState);
+      setEditingGroupId(null);
+      setEditingGroupName('');
     } catch (err: any) {
       alert(err.message || 'Gagal mengubah nama kelompok');
     } finally {
@@ -121,20 +121,22 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
     playClickSound();
     setSavingDiscId(discoveryId);
     try {
-      const res = await fetch(`/api/discoveries/${discoveryId}/shape`, {
-        method: 'PATCH',
-        headers: authHeaders(),
-        body: JSON.stringify({ realShape: newRealShape }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.state) {
-          onStateChange(data.state);
-        }
-      } else {
-        const err = await res.json();
-        alert(err.error || 'Gagal mengubah bentuk benda');
-      }
+      await updateDiscoveryShapeInSupabase(discoveryId, newRealShape);
+      const updatedDiscoveries = discoveries.map((d) =>
+        d.id === discoveryId
+          ? {
+              ...d,
+              realShape: newRealShape,
+              expectedShape: newRealShape,
+            }
+          : d
+      );
+      const newState: FullSessionState = {
+        ...state,
+        discoveries: updatedDiscoveries,
+      };
+      saveGameState(newState);
+      onStateChange(newState);
     } catch (err: any) {
       alert(err.message || 'Gagal mengubah bentuk benda');
     } finally {
@@ -142,27 +144,19 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
     }
   };
 
-  const authHeaders = (): Record<string, string> => {
-    const h: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (idToken) {
-      h.Authorization = `Bearer ${idToken}`;
-    }
-    return h;
-  };
-
   const handleUpdateSettings = async (updates: Record<string, any>) => {
     playClickSound();
     setBusy(true);
     try {
-      const res = await fetch(`/api/sessions/${session.id}/settings`, {
-        method: 'PATCH',
-        headers: authHeaders(),
-        body: JSON.stringify(updates),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        onStateChange(updated);
-      }
+      const newState: FullSessionState = {
+        ...state,
+        session: {
+          ...state.session,
+          ...updates,
+        },
+      };
+      saveGameState(newState);
+      onStateChange(newState);
     } finally {
       setBusy(false);
     }
@@ -172,14 +166,9 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
     playClickSound();
     setBusy(true);
     try {
-      const res = await fetch(`/api/sessions/${session.id}/reset`, {
-        method: 'POST',
-        headers: authHeaders(),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        onStateChange(updated);
-      }
+      await resetKartuTemuanInSupabase();
+      const fresh = resetGameSession();
+      onStateChange(fresh);
     } finally {
       setBusy(false);
     }

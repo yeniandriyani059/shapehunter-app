@@ -12,6 +12,8 @@ import {
   playShapeLockSound,
   playTryAgainSound,
 } from '../../utils/sound.ts';
+import { loadSavedGameState, saveGameState } from '../../utils/gameStore.ts';
+import { supabase, isSupabaseConfigured } from '../../supabaseClient.ts';
 import {
   Sparkles,
   Plus,
@@ -111,24 +113,11 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
     setFeedback({ status: null, message: '' });
 
     try {
-      const res = await fetch('/api/attempts/prove', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          groupId: group.id,
-          discoveryId: modalDiscovery.id,
-          sides,
-          corners,
-        }),
-      });
+      const isCorrect =
+        sides === modalShapeDef.sidesCount &&
+        corners === modalShapeDef.cornersCount;
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Gagal memeriksa jawaban');
-      }
-
-      if (data.result.isCorrect) {
+      if (isCorrect) {
         playShapeLockSound();
         try {
           confetti({
@@ -140,14 +129,43 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
           // ignore confetti error
         }
 
-        const totalPoints =
-          (data.result.pointsAwarded || 10) + (data.result.bonusAwarded || 5);
+        const totalPoints = 15;
 
         setFeedback({
           status: 'correct',
           message: `⭐ LUAR BIASA! Terbukti "${modalDiscovery.objectName}" memiliki ${sides} sisi dan ${corners} titik sudut! Kartu kini terkunci (+${totalPoints} XP ⭐)`,
           pointsAwarded: totalPoints,
         });
+
+        // Sync to Supabase table public.kartu_temuan
+        if (isSupabaseConfigured) {
+          try {
+            await supabase
+              .from('kartu_temuan')
+              .update({ is_proven: true })
+              .eq('id', modalDiscovery.id);
+          } catch (dbErr) {
+            console.warn('Supabase update is_proven notice:', dbErr);
+          }
+        }
+
+        const currentState = loadSavedGameState();
+        const updatedDiscoveries = currentState.discoveries.map((d) =>
+          d.id === modalDiscovery.id
+            ? { ...d, traitsVerified: true, isProven: true, isLocked: true }
+            : d
+        );
+        const updatedScores = currentState.scores.map((s) =>
+          s.groupId === group.id
+            ? { ...s, xp: s.xp + totalPoints, bonusPoints: s.bonusPoints + totalPoints }
+            : s
+        );
+        const newState = {
+          ...currentState,
+          discoveries: updatedDiscoveries,
+          scores: updatedScores,
+        };
+        saveGameState(newState);
 
         if (onSetGuideMessage) {
           onSetGuideMessage({
@@ -157,9 +175,7 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
           });
         }
 
-        if (data.state) {
-          onAttemptSubmitted(data.state);
-        }
+        onAttemptSubmitted(newState);
       } else {
         playTryAgainSound();
         const motivationalMessages = [

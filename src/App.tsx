@@ -61,7 +61,6 @@ function ShapeHunterApp() {
   const [koleksiShapeFilter, setKoleksiShapeFilter] = useState<string>('all');
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [isVictoryPodiumOpen, setIsVictoryPodiumOpen] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
 
   const applyNewState = useCallback((nextState: FullSessionState) => {
     if (!nextState || !nextState.session) return;
@@ -72,93 +71,21 @@ function ShapeHunterApp() {
     }
   }, []);
 
-  const fetchCurrentSession = useCallback(async () => {
-    try {
-      const res = await fetch('/api/sessions/current');
-      if (res.ok) {
-        const data: FullSessionState = await res.json();
-        applyNewState(data);
-      }
-    } catch {
-      // Gracefully maintain client-side state
-    }
-  }, [applyNewState]);
-
-  // Connect WebSocket for real-time synchronization
-  useEffect(() => {
-    fetchCurrentSession();
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-    let reconnectTimer: any = null;
-
-    const connectWs = () => {
-      try {
-        const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
-
-        ws.onopen = () => {
-          // Connected
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data);
-            if (message.type === 'session:init' || message.type === 'session:updated') {
-              applyNewState(message.payload);
-            } else if (message.type === 'discovery:created') {
-              playPhotoIncomingSound();
-              if (message.payload?.state) {
-                applyNewState(message.payload.state);
-              }
-            } else if (
-              message.type === 'attempt:evaluated' ||
-              message.type === 'discovery:proven' ||
-              message.type === 'group:updated'
-            ) {
-              if (message.payload?.state) {
-                applyNewState(message.payload.state);
-              }
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        };
-
-        ws.onclose = () => {
-          reconnectTimer = setTimeout(connectWs, 3000);
-        };
-      } catch {
-        reconnectTimer = setTimeout(connectWs, 3000);
-      }
-    };
-
-    connectWs();
-
-    // Secondary polling backup
-    const pollInterval = setInterval(() => {
-      fetch('/api/sessions/current')
-        .then((r) => r.json())
-        .then((d) => applyNewState(d))
-        .catch(() => {});
-    }, 6000);
-
-    return () => {
-      clearInterval(pollInterval);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (wsRef.current) wsRef.current.close();
-    };
-  }, [fetchCurrentSession, applyNewState]);
-
-  // Supabase "public.kartu_temuan" real-time fetch & subscription
+  // Pure 100% Supabase Real-time Synchronization (Serverless & Vercel compatible)
   useEffect(() => {
     if (!isSupabaseConfigured) return;
+
+    let previousCardCount = -1;
 
     const syncSupabaseCards = async () => {
       try {
         const cards = await fetchKartuTemuanFromSupabase();
         if (Array.isArray(cards)) {
+          if (previousCardCount !== -1 && cards.length > previousCardCount) {
+            playPhotoIncomingSound();
+          }
+          previousCardCount = cards.length;
+
           setGameState((prev) => {
             const mappedDiscoveries: Discovery[] = cards.map((card) => {
               const shape = (card.real_shape || 'lingkaran') as ShapeType;
@@ -205,6 +132,7 @@ function ShapeHunterApp() {
       }
     };
 
+    // Initial sync
     syncSupabaseCards();
 
     // Subscribe to Postgres changes on "public.kartu_temuan"
@@ -219,6 +147,7 @@ function ShapeHunterApp() {
       )
       .subscribe();
 
+    // Secondary 3s fallback poller from Supabase directly
     const interval = setInterval(syncSupabaseCards, 3000);
 
     return () => {

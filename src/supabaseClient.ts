@@ -171,4 +171,40 @@ export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
   return [];
 }
 
+/**
+ * Updates real_shape for a discovery in Supabase table "public.kartu_temuan"
+ */
+export async function updateDiscoveryShapeInSupabase(id: number, newRealShape: string): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase
+      .from('kartu_temuan')
+      .update({ real_shape: newRealShape })
+      .eq('id', id);
+    if (error) {
+      console.warn('Supabase update shape notice:', error.message);
+    }
+  } catch (err) {
+    console.warn('Supabase update shape exception:', err);
+  }
+}
+
+/**
+ * Resets all kartu_temuan records in Supabase (on session reset)
+ */
+export async function resetKartuTemuanInSupabase(): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  try {
+    const { error } = await supabase
+      .from('kartu_temuan')
+      .delete()
+      .gte('id', 0);
+    if (error) {
+      console.warn('Supabase reset kartu_temuan notice:', error.message);
+    }
+  } catch (err) {
+    console.warn('Supabase reset kartu_temuan exception:', err);
+  }
+}
+
 export default supabase;

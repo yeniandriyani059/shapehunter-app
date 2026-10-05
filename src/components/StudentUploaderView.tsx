@@ -239,25 +239,6 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
         studentClaimedShape: expectedShape,
       });
 
-      // 5. Also notify backend server and WebSocket clients
-      try {
-        fetch('/api/discoveries', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            groupId: selectedGroupId,
-            studentName: studentName.trim() || 'Petualang Cilik',
-            objectName: finalObjectName,
-            photoUrl: finalPhotoUrl,
-            expectedShape,
-            realShape: assignedShape,
-            studentClaimedShape: expectedShape,
-          }),
-        }).catch(() => {});
-      } catch {
-        // Safe ignore
-      }
-
       playPhotoIncomingSound();
       const targetGroup = groups.find((g) => g.id === selectedGroupId);
       setUploadSuccess(
