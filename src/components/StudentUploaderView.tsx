@@ -17,7 +17,7 @@ import { CharacterGuide, TeamCampBadge } from './GameAssets3D.tsx';
 import { ProveModal } from './ProveModal.tsx';
 import { LiveCameraModal } from './LiveCameraModal.tsx';
 import { analyzeShapeClientSide } from '../utils/shapeDetector.ts';
-import { addDiscoveryToState } from '../utils/gameStore.ts';
+import { addDiscoveryToState, addDiscoveryToStateAsync } from '../utils/gameStore.ts';
 import {
   playClickSound,
   playPhotoIncomingSound,
@@ -153,8 +153,8 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
       const aiResult = await analyzeShapeClientSide(photoPreview);
       const finalObjectName = objectName.trim() || aiResult.namaBenda || 'Benda Temuan';
 
-      // Store in client-side state
-      const { newState } = addDiscoveryToState(state, {
+      // Store in client-side state and sync with Supabase storage & public.kartu_temuan table
+      const { newState } = await addDiscoveryToStateAsync(state, {
         groupId: selectedGroupId,
         studentName: studentName.trim() || 'Petualang Cilik',
         objectName: finalObjectName,
@@ -525,14 +525,14 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
           Koleksi Kartu Temuan Kemah ({teamDiscoveries.length} Kartu)
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-          {teamDiscoveries.map((disc) => {
+          {teamDiscoveries.map((disc, idx) => {
             const shapeKey = (disc.realShape || disc.expectedShape) as ShapeType;
             const shapeDef =
               SHAPE_DEFINITIONS[shapeKey] ||
               SHAPE_DEFINITIONS.lingkaran;
             return (
               <div
-                key={disc.id}
+                key={`uploader-disc-${disc.id || idx}-${idx}`}
                 onClick={() => {
                   playClickSound();
                   setProvingDiscovery(disc);

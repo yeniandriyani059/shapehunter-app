@@ -6,11 +6,14 @@ import path from 'path';
 import {
   getDefaultGameState,
   addDiscoveryToState,
+  addDiscoveryToStateAsync,
   evaluateShapeAttempt,
   proveDiscoveryTraitsInState,
   updateMissionLevel,
   resetGameSession,
+  mergeSupabaseDiscoveriesToState,
 } from './src/utils/gameStore.ts';
+import { fetchKartuTemuanFromSupabase } from './src/supabaseClient.ts';
 import { FullSessionState, ShapeType } from './src/types/game.ts';
 
 async function startServer() {
@@ -26,8 +29,23 @@ async function startServer() {
     res.sendFile(path.join(process.cwd(), 'src/RifficFree-Bold.ttf'));
   });
 
-  // In-memory server session state (resilient, instant, zero database dependencies)
+  // Server session state synced dynamically with Supabase public.kartu_temuan
   let serverGameState: FullSessionState = getDefaultGameState();
+
+  const syncServerWithSupabase = async () => {
+    try {
+      const cards = await fetchKartuTemuanFromSupabase();
+      if (Array.isArray(cards) && cards.length > 0) {
+        serverGameState = mergeSupabaseDiscoveriesToState(serverGameState, cards);
+      }
+    } catch (err) {
+      console.warn('[Server] Supabase sync notice:', err);
+    }
+  };
+
+  // Initial sync and periodic 3s background sync
+  syncServerWithSupabase();
+  setInterval(syncServerWithSupabase, 3000);
 
   // WebSocket Server for Real-Time synchronization across local tabs/devices
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
@@ -69,8 +87,8 @@ async function startServer() {
     res.json(serverGameState);
   });
 
-  // 2. Upload New Discovery from Student (In-Memory State + Client Sync)
-  app.post('/api/discoveries', (req, res) => {
+  // 2. Upload New Discovery from Student (In-Memory State + Supabase Bucket & Table Sync)
+  app.post('/api/discoveries', async (req, res) => {
     try {
       const {
         groupId,
@@ -88,7 +106,7 @@ async function startServer() {
 
       const assignedShape: ShapeType = realShape || expectedShape || 'lingkaran';
 
-      const { newState, newDiscovery } = addDiscoveryToState(serverGameState, {
+      const { newState, newDiscovery } = await addDiscoveryToStateAsync(serverGameState, {
         groupId: Number(groupId),
         studentName: String(studentName || 'Petualang Cilik'),
         objectName: String(objectName || 'Benda Temuan'),

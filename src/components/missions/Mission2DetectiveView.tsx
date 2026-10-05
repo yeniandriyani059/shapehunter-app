@@ -252,7 +252,7 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {groupDiscoveries.map((disc) => {
+            {groupDiscoveries.map((disc, idx) => {
               const isProven = disc.traitsVerified || disc.isProven;
               const cardShape =
                 SHAPE_DEFINITIONS[
@@ -263,7 +263,7 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
 
               return (
                 <div
-                  key={disc.id}
+                  key={`m2-disc-${disc.id || idx}-${idx}`}
                   onClick={() => !isProven && handleOpenProveModal(disc)}
                   className={`group relative rounded-3xl border-3 p-3 flex flex-col justify-between transition-all ${
                     isProven

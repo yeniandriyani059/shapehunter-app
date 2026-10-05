@@ -461,7 +461,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3 relative">
-            {unlockedDiscoveries.map((disc) => {
+            {unlockedDiscoveries.map((disc, index) => {
               const drag = activeDrags[disc.id];
               const isBeingDragged = !!drag && drag.hasMoved;
               const isSelected = activeDiscovery?.id === disc.id;
@@ -485,7 +485,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
 
               return (
                 <div
-                  key={disc.id}
+                  key={`m1-unlocked-${disc.id || index}-${index}`}
                   onPointerDown={(e) => handleCardPointerDown(e, disc)}
                   onPointerMove={(e) => handleCardPointerMove(e, disc)}
                   onPointerUp={(e) =>
@@ -639,9 +639,9 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
                   </div>
                 ) : lockedInThisZone.length > 0 ? (
                   <div className="mt-2.5 flex items-center gap-2 overflow-x-auto py-0.5">
-                    {lockedInThisZone.slice(0, 4).map((locked) => (
+                    {lockedInThisZone.slice(0, 4).map((locked, idx) => (
                       <div
-                        key={locked.id}
+                        key={`m1-locked-${locked.id || idx}-${idx}`}
                         className={`relative w-10 h-10 rounded-xl overflow-hidden border-2 ${
                           locked.traitsVerified
                             ? 'border-amber-400 ring-2 ring-amber-300/80 shadow-sm'

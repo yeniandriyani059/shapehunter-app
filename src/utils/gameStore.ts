@@ -8,7 +8,13 @@ import {
   ShapeType,
   MISSION_LEVELS,
 } from '../types/game.ts';
-import { supabase, isSupabaseConfigured } from '../supabaseClient.ts';
+import {
+  supabase,
+  isSupabaseConfigured,
+  uploadPhotoToSupabaseBucket,
+  syncKartuTemuanToSupabase,
+  fetchKartuTemuanFromSupabase,
+} from '../supabaseClient.ts';
 
 const STORAGE_KEY = 'shape_hunter_client_game_state_v2';
 
@@ -92,29 +98,34 @@ export function getDefaultGameState(): FullSessionState {
 }
 
 export function loadSavedGameState(): FullSessionState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.session && parsed.groups && parsed.discoveries) {
-        return parsed;
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.session && parsed.groups && parsed.discoveries) {
+          return parsed;
+        }
       }
+    } catch (err) {
+      console.warn('Could not read saved game state:', err);
     }
-  } catch (err) {
-    console.warn('Could not read saved game state:', err);
   }
   return getDefaultGameState();
 }
 
 export function saveGameState(state: FullSessionState): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (err) {
-    console.warn('Could not save game state to localStorage:', err);
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (err) {
+      console.warn('Could not save game state to localStorage:', err);
+    }
   }
 
   // Asynchronously sync with Supabase if configured
   if (isSupabaseConfigured) {
+    // 1. Sync full game session
     supabase
       .from('game_sessions')
       .upsert({
@@ -131,6 +142,13 @@ export function saveGameState(state: FullSessionState): void {
       .catch((err) => {
         console.warn('Supabase sync exception:', err);
       });
+
+    // 2. Sync all discoveries to public.kartu_temuan table
+    if (Array.isArray(state.discoveries)) {
+      state.discoveries.forEach((d) => {
+        syncKartuTemuanToSupabase(d);
+      });
+    }
   }
 }
 
@@ -189,7 +207,33 @@ export function addDiscoveryToState(
   };
 
   saveGameState(newState);
+  syncKartuTemuanToSupabase(newDiscovery);
+
   return { newState, newDiscovery };
+}
+
+/**
+ * Async version of addDiscoveryToState that uploads photo to Supabase Storage bucket "foto_temuan" first
+ */
+export async function addDiscoveryToStateAsync(
+  currentState: FullSessionState,
+  params: {
+    groupId: number;
+    studentName: string;
+    objectName: string;
+    photoUrl: string;
+    expectedShape: ShapeType;
+    realShape: ShapeType;
+    studentClaimedShape?: ShapeType;
+  }
+): Promise<{ newState: FullSessionState; newDiscovery: Discovery }> {
+  // Try uploading image to "foto_temuan" storage bucket if it's base64
+  const cdnPhotoUrl = await uploadPhotoToSupabaseBucket(params.photoUrl);
+
+  return addDiscoveryToState(currentState, {
+    ...params,
+    photoUrl: cdnPhotoUrl,
+  });
 }
 
 /**
@@ -373,4 +417,67 @@ export function resetGameSession(): FullSessionState {
   const fresh = getDefaultGameState();
   saveGameState(fresh);
   return fresh;
+}
+
+/**
+ * Pure 1:1 synchronization with records fetched from Supabase "public.kartu_temuan"
+ */
+export function mergeSupabaseDiscoveriesToState(
+  currentState: FullSessionState,
+  supabaseItems: Array<{
+    id: number;
+    photoUrl: string;
+    objectName: string;
+    realShape: string;
+    groupId: number;
+    isProven: boolean;
+  }>
+): FullSessionState {
+  if (!Array.isArray(supabaseItems)) {
+    return currentState;
+  }
+
+  // Pure 1:1 mapping from Supabase public.kartu_temuan table
+  const freshDiscoveries: Discovery[] = supabaseItems.map((remoteItem) => {
+    const existing = currentState.discoveries.find((d) => d.id === remoteItem.id);
+    const assignedShape = (remoteItem.realShape as ShapeType) || 'lingkaran';
+    const isProven = Boolean(remoteItem.isProven);
+
+    return {
+      id: remoteItem.id,
+      sessionId: currentState.session.id,
+      groupId: remoteItem.groupId || 1,
+      studentName: existing?.studentName || 'Petualang Cilik',
+      objectName: remoteItem.objectName || 'Benda Temuan',
+      photoUrl: remoteItem.photoUrl,
+      realShape: assignedShape,
+      expectedShape: assignedShape,
+      studentClaimedShape: assignedShape,
+      classifiedShape: existing?.classifiedShape ?? (isProven ? assignedShape : null),
+      isLocked: existing?.isLocked ?? isProven,
+      annotationsJson: existing?.annotationsJson ?? '[]',
+      traitsVerified: isProven,
+      isProven: isProven,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+    };
+  });
+
+  // Recalculate totalDiscoveries per group based on fresh Supabase discoveries
+  const updatedScores = currentState.scores.map((score) => {
+    const groupCardCount = freshDiscoveries.filter((d) => d.groupId === score.groupId).length;
+    return {
+      ...score,
+      totalDiscoveries: groupCardCount,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  const newState: FullSessionState = {
+    ...currentState,
+    discoveries: freshDiscoveries,
+    scores: updatedScores,
+  };
+
+  saveGameState(newState);
+  return newState;
 }

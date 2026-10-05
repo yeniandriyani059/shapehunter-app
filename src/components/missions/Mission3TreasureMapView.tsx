@@ -596,12 +596,12 @@ export const Mission3TreasureMapView: React.FC<Mission3TreasureMapViewProps> = (
                 {/* Brewing Mini Tokens Inside Liquid */}
                 {cauldronDiscoveries.length > 0 ? (
                   <div className="z-10 flex flex-wrap items-center justify-center gap-1 max-w-[130px] p-1">
-                    {cauldronDiscoveries.map((disc) => {
+                    {cauldronDiscoveries.map((disc, idx) => {
                       const s = getCardShape(disc);
                       const sDef = SHAPE_DEFINITIONS[s];
                       return (
                         <span
-                          key={disc.id}
+                          key={`m3-brew-${disc.id || idx}-${idx}`}
                           className="w-5 h-5 rounded-md bg-white/90 text-slate-900 font-display font-bold text-[10px] flex items-center justify-center shadow-xs animate-pop-in"
                           title={`${disc.objectName} (${sDef.name})`}
                         >
@@ -803,7 +803,7 @@ export const Mission3TreasureMapView: React.FC<Mission3TreasureMapViewProps> = (
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {pouchCards.map((disc) => {
+            {pouchCards.map((disc, idx) => {
               const shape = getCardShape(disc);
               const shapeDef = SHAPE_DEFINITIONS[shape];
               const drag = activeDrags[disc.id];
@@ -826,7 +826,7 @@ export const Mission3TreasureMapView: React.FC<Mission3TreasureMapViewProps> = (
 
               return (
                 <div
-                  key={disc.id}
+                  key={`m3-pouch-${disc.id || idx}-${idx}`}
                   onPointerDown={(e) => handleCardPointerDown(e, disc)}
                   onPointerMove={(e) => handleCardPointerMove(e, disc)}
                   onPointerUp={(e) => handleCardPointerUpOrCancel(e, disc, false)}

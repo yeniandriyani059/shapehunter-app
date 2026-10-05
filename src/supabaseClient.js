@@ -18,4 +18,123 @@ export const supabase = createClient(
   supabaseAnonKey || 'placeholder-key'
 );
 
+/**
+ * Uploads a base64 photo to Supabase Storage bucket "foto_temuan".
+ */
+export async function uploadPhotoToSupabaseBucket(dataUrl) {
+  if (!isSupabaseConfigured || !dataUrl || !dataUrl.startsWith('data:image/')) {
+    return dataUrl;
+  }
+
+  try {
+    const match = dataUrl.match(/^data:(image\/[a-zA-Z]+);base64,(.+)$/);
+    if (!match) return dataUrl;
+
+    const contentType = match[1];
+    const base64Data = match[2];
+
+    const binaryStr = atob(base64Data);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    const fileExt = contentType.split('/')[1] || 'jpeg';
+    const fileName = `temuan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+
+    const { data, error } = await supabase.storage
+      .from('foto_temuan')
+      .upload(fileName, bytes.buffer, {
+        contentType,
+        upsert: true,
+      });
+
+    if (error) {
+      console.warn('Supabase storage "foto_temuan" upload notice:', error.message);
+      return dataUrl;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('foto_temuan')
+      .getPublicUrl(data.path);
+
+    if (publicUrlData && publicUrlData.publicUrl) {
+      return publicUrlData.publicUrl;
+    }
+  } catch (err) {
+    console.warn('Supabase storage exception:', err);
+  }
+
+  return dataUrl;
+}
+
+/**
+ * Syncs a discovery record to Supabase table "public.kartu_temuan"
+ */
+export async function syncKartuTemuanToSupabase(discovery) {
+  if (!isSupabaseConfigured) return;
+
+  try {
+    const payload = {
+      id: discovery.id,
+      image_url: discovery.photoUrl,
+      nama_benda: discovery.objectName,
+      real_shape: discovery.realShape,
+      kelompok_id: discovery.groupId,
+      is_proven: Boolean(discovery.isProven || discovery.traitsVerified),
+    };
+
+    const { error } = await supabase
+      .from('kartu_temuan')
+      .upsert(payload, { onConflict: 'id' });
+
+    if (error) {
+      console.warn('Supabase "kartu_temuan" sync notice:', error.message);
+    }
+  } catch (err) {
+    console.warn('Supabase "kartu_temuan" sync exception:', err);
+  }
+}
+
+/**
+ * Fetches all records from Supabase table "public.kartu_temuan"
+ */
+export async function fetchKartuTemuanFromSupabase() {
+  if (!isSupabaseConfigured) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from('kartu_temuan')
+      .select('*')
+      .order('id', { ascending: false });
+
+    if (error) {
+      console.warn('Supabase fetch "kartu_temuan" notice:', error.message);
+      return [];
+    }
+
+    if (Array.isArray(data)) {
+      return data.map((item, idx) => {
+        const rawId = Number(item.id);
+        const validId = !isNaN(rawId) && rawId !== 0 ? rawId : (Date.now() + idx + Math.floor(Math.random() * 1000));
+        const rawGroupId = Number(item.kelompok_id || item.group_id || item.groupId);
+        const validGroupId = !isNaN(rawGroupId) && rawGroupId > 0 ? rawGroupId : 1;
+
+        return {
+          id: validId,
+          photoUrl: item.image_url || item.photo_url || item.photoUrl || '',
+          objectName: item.nama_benda || item.object_name || item.objectName || 'Benda Temuan',
+          realShape: item.real_shape || item.realShape || 'lingkaran',
+          groupId: validGroupId,
+          isProven: Boolean(item.is_proven || item.isProven),
+        };
+      });
+    }
+  } catch (err) {
+    console.warn('Supabase fetch "kartu_temuan" exception:', err);
+  }
+
+  return [];
+}
+
 export default supabase;

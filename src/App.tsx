@@ -29,6 +29,12 @@ import {
   updateMissionLevel,
   resetGameSession,
 } from './utils/gameStore.ts';
+import {
+  supabase,
+  isSupabaseConfigured,
+  fetchKartuTemuanFromSupabase,
+} from './supabaseClient.ts';
+import { Discovery, ShapeType } from './types/game.ts';
 import { LeaderboardModal } from './components/LeaderboardModal.tsx';
 import { PodiumCelebrationModal } from './components/PodiumCelebrationModal.tsx';
 import { Trophy, Award, Map, Sparkles } from 'lucide-react';
@@ -52,6 +58,7 @@ function ShapeHunterApp() {
   const [gameState, setGameState] = useState<FullSessionState>(() => loadSavedGameState());
   const [loading, setLoading] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(600);
+  const [koleksiShapeFilter, setKoleksiShapeFilter] = useState<string>('all');
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [isVictoryPodiumOpen, setIsVictoryPodiumOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -143,6 +150,82 @@ function ShapeHunterApp() {
       if (wsRef.current) wsRef.current.close();
     };
   }, [fetchCurrentSession, applyNewState]);
+
+  // Supabase "public.kartu_temuan" real-time fetch & subscription
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    const syncSupabaseCards = async () => {
+      try {
+        const cards = await fetchKartuTemuanFromSupabase();
+        if (Array.isArray(cards)) {
+          setGameState((prev) => {
+            const mappedDiscoveries: Discovery[] = cards.map((card: any) => {
+              const shape = (card.realShape || 'lingkaran') as ShapeType;
+              const isProven = Boolean(card.isProven);
+              return {
+                id: card.id,
+                sessionId: prev?.session?.id || 1,
+                groupId: card.groupId || 1,
+                studentName: 'Petualang Cilik',
+                objectName: card.objectName || 'Benda Temuan',
+                photoUrl: card.photoUrl || '',
+                realShape: shape,
+                expectedShape: shape,
+                studentClaimedShape: shape,
+                classifiedShape: isProven ? shape : null,
+                isLocked: isProven,
+                annotationsJson: '[]',
+                traitsVerified: isProven,
+                isProven: isProven,
+                createdAt: new Date().toISOString(),
+              };
+            });
+
+            const updatedScores = prev.scores.map((score) => {
+              const groupCardCount = mappedDiscoveries.filter((d) => d.groupId === score.groupId).length;
+              return {
+                ...score,
+                totalDiscoveries: groupCardCount,
+                updatedAt: new Date().toISOString(),
+              };
+            });
+
+            const nextState = {
+              ...prev,
+              discoveries: mappedDiscoveries,
+              scores: updatedScores,
+            };
+            saveGameState(nextState);
+            return nextState;
+          });
+        }
+      } catch (err) {
+        console.warn('Supabase cards sync warning:', err);
+      }
+    };
+
+    syncSupabaseCards();
+
+    // Subscribe to Postgres changes on "public.kartu_temuan"
+    const channel = supabase
+      .channel('public:kartu_temuan_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'kartu_temuan' },
+        () => {
+          syncSupabaseCards();
+        }
+      )
+      .subscribe();
+
+    const interval = setInterval(syncSupabaseCards, 3000);
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Timer countdown
   useEffect(() => {
@@ -459,14 +542,14 @@ function ShapeHunterApp() {
             {/* 4. KOLEKSI TEMUAN BANGUN DATAR */}
             {screen === 'koleksi' && (
               <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col gap-6 animate-fade-in">
-                <div className="rounded-[32px] bg-white/95 border-4 border-sky-400 shadow-[0_10px_0_#38BDF8] p-6">
-                  <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b-2 border-slate-100">
+                <div className="rounded-[32px] bg-white/95 border-4 border-sky-400 shadow-[0_10px_0_#38BDF8] p-5 sm:p-6">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-5 pb-4 border-b-2 border-slate-100">
                     <div>
                       <h1 className="font-display text-2xl sm:text-3xl font-black text-slate-900">
-                        Koleksi Temuan Bangun Datar
+                        Galeri Temuan Supabase (`public.kartu_temuan`)
                       </h1>
-                      <p className="text-sm sm:text-base font-semibold text-slate-600 mt-0.5">
-                        Lihat benda-benda nyata yang telah dipotret oleh semua kemah!
+                      <p className="text-xs sm:text-sm font-semibold text-slate-600 mt-0.5">
+                        {gameState.discoveries.length} foto temuan siswa tersinkronasi langsung dari database Supabase secara real-time.
                       </p>
                     </div>
 
@@ -494,73 +577,137 @@ function ShapeHunterApp() {
                     </div>
                   </div>
 
-                  {/* Kategori 4 Bangun Datar */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {SHAPE_LIST.map((shape) => {
-                      const shapeDiscoveries = gameState.discoveries.filter(
+                  {/* Filter Tabs Filter Bentuk */}
+                  <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playClickSound();
+                        setKoleksiShapeFilter('all');
+                      }}
+                      className={`btn-3d px-4 py-2 rounded-2xl font-display text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                        koleksiShapeFilter === 'all'
+                          ? 'bg-sky-500 text-white shadow-[0_3px_0_#0284C7]'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      Semua Benda ({gameState.discoveries.length})
+                    </button>
+                    {SHAPE_LIST.map((shapeDef) => {
+                      const count = gameState.discoveries.filter(
                         (d) =>
-                          (d.classifiedShape === shape.id ||
-                            d.expectedShape === shape.id) &&
-                          d.isLocked
-                      );
-
+                          d.classifiedShape === shapeDef.id ||
+                          d.expectedShape === shapeDef.id ||
+                          d.realShape === shapeDef.id
+                      ).length;
+                      const isSelected = koleksiShapeFilter === shapeDef.id;
                       return (
-                        <div
-                          key={shape.id}
-                          className="rounded-3xl border-3 border-slate-200 bg-slate-50/80 p-4 flex flex-col gap-3 shadow-xs"
+                        <button
+                          key={`filter-${shapeDef.id}`}
+                          type="button"
+                          onClick={() => {
+                            playClickSound();
+                            setKoleksiShapeFilter(shapeDef.id);
+                          }}
+                          className={`btn-3d px-3.5 py-2 rounded-2xl font-display text-xs font-bold whitespace-nowrap flex items-center gap-2 transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-amber-400 text-slate-950 shadow-[0_3px_0_#B45309]'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
                         >
-                          <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200">
-                            <ShapeMascot3D shape={shape.id} size={40} />
-                            <div>
-                              <h3 className="font-display font-bold text-sm text-slate-900">
-                                {shape.name}
-                              </h3>
-                              <span className="text-[11px] font-bold text-slate-500">
-                                {shapeDiscoveries.length} Benda Terbukti
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                            {shapeDiscoveries.length === 0 ? (
-                              <div className="py-6 text-center text-xs text-slate-400 font-semibold italic">
-                                Belum ada benda yang terbukti di pulau ini.
-                              </div>
-                            ) : (
-                              shapeDiscoveries.map((disc) => {
-                                const grp = gameState.groups.find(
-                                  (g) => g.id === disc.groupId
-                                );
-                                return (
-                                  <div
-                                    key={disc.id}
-                                    className="rounded-2xl bg-white p-2 border border-slate-200 shadow-2xs flex items-center gap-2"
-                                  >
-                                    <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-100 shrink-0">
-                                      <img
-                                        src={disc.photoUrl}
-                                        alt={disc.objectName}
-                                        className="w-full h-full object-cover"
-                                      />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <h4 className="font-display font-bold text-xs text-slate-900 truncate">
-                                        {disc.objectName}
-                                      </h4>
-                                      <p className="text-[10px] text-slate-500 truncate">
-                                        Oleh: {disc.studentName} (
-                                        {grp ? formatCampDisplayName(grp.name) : ''})
-                                      </p>
-                                    </div>
-                                  </div>
-                                );
-                              })
-                            )}
-                          </div>
-                        </div>
+                          <ShapeMascot3D shape={shapeDef.id} size={22} />
+                          <span>{shapeDef.name} ({count})</span>
+                        </button>
                       );
                     })}
                   </div>
+
+                  {/* Uniform & Consistent Card Grid */}
+                  {(() => {
+                    const filteredDiscoveries = gameState.discoveries.filter((d) => {
+                      if (koleksiShapeFilter === 'all') return true;
+                      return (
+                        d.classifiedShape === koleksiShapeFilter ||
+                        d.expectedShape === koleksiShapeFilter ||
+                        d.realShape === koleksiShapeFilter
+                      );
+                    });
+
+                    if (filteredDiscoveries.length === 0) {
+                      return (
+                        <div className="rounded-3xl border-3 border-dashed border-sky-300 bg-sky-50/60 p-10 text-center">
+                          <p className="font-display text-base sm:text-lg font-bold text-slate-800">
+                            Belum ada foto temuan untuk kategori ini.
+                          </p>
+                          <p className="text-xs sm:text-sm font-semibold text-slate-600 mt-1">
+                            Buka kamera dari HP siswa untuk memotret benda sekolah!
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                        {filteredDiscoveries.map((disc, idx) => {
+                          const grp = gameState.groups.find((g) => g.id === disc.groupId);
+                          const shapeKey = (disc.realShape || disc.expectedShape || 'lingkaran') as ShapeType;
+                          const shapeDef = SHAPE_DEFINITIONS[shapeKey] || SHAPE_DEFINITIONS.lingkaran;
+                          const isProven = disc.traitsVerified || disc.isProven;
+
+                          return (
+                            <div
+                              key={`galeri-card-${disc.id || idx}-${idx}`}
+                              className="rounded-3xl border-3 border-slate-200 bg-white p-3 shadow-[0_5px_0_#CBD5E1] hover:border-sky-400 hover:shadow-[0_8px_0_#38BDF8] hover:-translate-y-1 transition-all flex flex-col justify-between h-[230px] select-none"
+                            >
+                              {/* Fixed Aspect Ratio Photo Container */}
+                              <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-slate-100 shrink-0 border border-slate-100">
+                                <img
+                                  src={disc.photoUrl}
+                                  alt={disc.objectName}
+                                  className="w-full h-full object-cover rounded-2xl pointer-events-none"
+                                />
+
+                                {/* Shape Tag Overlay */}
+                                <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-xl bg-slate-900/85 text-white font-display font-bold text-[10px] shadow-xs">
+                                  {shapeDef.symbol} {shapeDef.name}
+                                </span>
+
+                                {/* Group Badge Overlay */}
+                                {grp && (
+                                  <span className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-xl bg-sky-100/90 text-sky-950 border border-sky-300 font-display font-bold text-[9px] shadow-2xs truncate max-w-[85px]">
+                                    {formatCampDisplayName(grp.name)}
+                                  </span>
+                                )}
+
+                                {/* Proof Badge Overlay */}
+                                {isProven && (
+                                  <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded-xl bg-emerald-500 text-white font-display font-bold text-[9px] shadow-xs">
+                                    Terbukti
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Card Title & Info */}
+                              <div className="pt-2 flex flex-col justify-between flex-1 min-h-0">
+                                <div>
+                                  <h4 className="font-display font-bold text-sm text-slate-900 truncate">
+                                    {disc.objectName}
+                                  </h4>
+                                  <p className="text-xs font-semibold text-slate-500 truncate mt-0.5">
+                                    {disc.studentName}
+                                  </p>
+                                </div>
+                                <div className="text-[10px] font-bold text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100">
+                                  <span>Supabase Sync</span>
+                                  <span className="text-emerald-600 font-extrabold">● Active</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             )}
