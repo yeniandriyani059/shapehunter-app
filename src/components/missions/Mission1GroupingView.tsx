@@ -15,7 +15,11 @@ import {
   playTryAgainSound,
 } from '../../utils/sound.ts';
 import { Sparkles, RotateCcw } from 'lucide-react';
-import { evaluateShapeAttempt, loadSavedGameState } from '../../utils/gameStore.ts';
+import {
+  evaluateShapeAttempt,
+  loadSavedGameState,
+  saveGameState,
+} from '../../utils/gameStore.ts';
 import { supabase, isSupabaseConfigured } from '../../supabaseClient.ts';
 
 interface ActiveCardDrag {
@@ -82,8 +86,18 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
     persegi_panjang: null,
   });
 
-  const unlockedDiscoveries = groupDiscoveries.filter((d) => !d.isLocked);
-  const lockedDiscoveries = groupDiscoveries.filter((d) => d.isLocked);
+  const isCardAssigned = (d: Discovery) => {
+    return Boolean(d.island || d.classifiedShape || d.targetShape);
+  };
+
+  const unlockedDiscoveries = groupDiscoveries.filter((d) => !isCardAssigned(d));
+  const lockedDiscoveries = groupDiscoveries.filter((d) => isCardAssigned(d));
+
+  // Total XP accumulation for this group in Mission 1 with fallback to 10
+  const totalGroupXp = groupDiscoveries.reduce(
+    (sum, d) => sum + (typeof d.xp === 'number' && d.xp > 0 ? d.xp : (Number(d.xp) || 10)),
+    0
+  );
 
   const activeDiscovery =
     unlockedDiscoveries.find((d) => stagedPlacement?.discoveryId === d.id) ||
@@ -93,7 +107,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
 
   /**
    * Hit-test pointer coordinates and dragged card center against THIS GROUP's 4 shape portals.
-   * Cross-camp drop is strictly blocked (cards from Group 1 cannot drop into Group 2's portals).
+   * Multi-touch isolated: cards from Group 1 strictly hit Group 1 portals; cards from Group 2 hit Group 2 portals.
    */
   const detectArenaDropZone = useCallback(
     (
@@ -102,7 +116,21 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
       cardCenterX: number,
       cardCenterY: number
     ): ShapeType | null => {
-      const tolerance = 22;
+      // 1. Direct hit-test using elementFromPoint for ultra-responsive multi-touch dropping
+      if (typeof document !== 'undefined') {
+        const targetElement = document.elementFromPoint(pointerX, pointerY);
+        const islandNode = targetElement?.closest<HTMLElement>('[data-shape-island]');
+        if (islandNode) {
+          const islandGroupId = islandNode.getAttribute('data-group-id');
+          const islandShape = islandNode.getAttribute('data-shape-island') as ShapeType;
+          if (islandGroupId === String(group.id) && islandShape && SHAPE_DEFINITIONS[islandShape]) {
+            return islandShape;
+          }
+        }
+      }
+
+      // 2. Fallback: Geometrical bounding-box proximity with touch tolerance
+      const tolerance = 28;
       let bestMatch: ShapeType | null = null;
       let bestDistance = Infinity;
 
@@ -110,7 +138,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
         const el = dropZoneRefs.current[shapeDef.id];
         if (!el) continue;
 
-        // Double verification: island element must belong to this camp
+        // Strict verification: island element must belong to this specific camp/board
         const gid = el.getAttribute('data-group-id');
         if (gid && gid !== String(group.id)) continue;
 
@@ -150,9 +178,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
   const submitShapeCheck = useCallback(
     async (
       disc: Discovery,
-      targetShape: ShapeType,
-      customAnnotations: AnnotationMarker[] = [],
-      customTrait: string = ''
+      targetShape: ShapeType
     ) => {
       if (submitting || !isPlaying) return;
       setSubmitting(true);
@@ -161,70 +187,107 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
 
       try {
         const currentSavedState = loadSavedGameState();
-        const evaluation = evaluateShapeAttempt(currentSavedState, {
+
+        // 1. Build a complete, non-destructive list of all discoveries
+        const discMap = new Map<number, Discovery>();
+        (currentSavedState.discoveries || []).forEach((d) => discMap.set(d.id, d));
+        (groupDiscoveries || []).forEach((d) => discMap.set(d.id, d));
+
+        // 2. Update the target dropped discovery to be grouped into this island with Terbukti status
+        const currentDisc = discMap.get(disc.id) || disc;
+        discMap.set(disc.id, {
+          ...currentDisc,
+          island: targetShape,
+          targetShape: targetShape,
+          classifiedShape: targetShape,
+          isLocked: true,
+          isProven: true,
+          traitsVerified: true,
+          xp: typeof currentDisc.xp === 'number' && currentDisc.xp > 0 ? currentDisc.xp : 10,
+        });
+
+        const updatedDiscoveries = Array.from(discMap.values());
+
+        // 3. Update group score: add +10 XP
+        const updatedScores = currentSavedState.scores.map((score) => {
+          if (score.groupId === group.id) {
+            const newAttempts = score.attemptCount + 1;
+            const newCorrect = score.correctCount + 1;
+            const newXp = score.xp + 10;
+            const newAccuracy = Math.round((newCorrect / Math.max(1, newAttempts)) * 100);
+
+            return {
+              ...score,
+              xp: newXp,
+              attemptCount: newAttempts,
+              correctCount: newCorrect,
+              accuracy: newAccuracy,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return score;
+        });
+
+        const newAttempt: GameAttempt = {
+          id: Date.now() + Math.floor(Math.random() * 500),
+          sessionId: currentSavedState.session.id,
           groupId: group.id,
           discoveryId: disc.id,
           selectedShape: targetShape,
-        });
+          isCorrect: true,
+          levelAtAttempt: currentSavedState.session.currentLevel,
+          pointsAwarded: 10,
+          bonusAwarded: 0,
+          reasonText: `Benda dimasukkan ke Pulau ${targetShapeDef.name} dan terbukti cocok!`,
+          createdAt: new Date().toISOString(),
+        };
 
-        if (evaluation.isCorrect) {
-          playShapeLockSound();
-          setSparkleZoneShape(targetShape);
-          setTimeout(() => setSparkleZoneShape(null), 1400);
+        const nextState: FullSessionState = {
+          ...currentSavedState,
+          discoveries: updatedDiscoveries,
+          scores: updatedScores,
+          attempts: [newAttempt, ...(currentSavedState.attempts || [])],
+        };
 
-          try {
-            confetti({
-              particleCount: 65,
-              spread: 70,
-              origin: { x: campSide === 'left' ? 0.28 : 0.72, y: 0.6 },
-            });
-          } catch {
-            // ignore confetti error
-          }
+        saveGameState(nextState);
 
-          // Sync to Supabase table public.kartu_temuan
-          if (isSupabaseConfigured) {
-            try {
-              await supabase
-                .from('kartu_temuan')
-                .update({ is_proven: true })
-                .eq('id', disc.id);
-            } catch (dbErr) {
+        playShapeLockSound();
+        setSparkleZoneShape(targetShape);
+        setTimeout(() => setSparkleZoneShape(null), 1400);
+
+        try {
+          confetti({
+            particleCount: 65,
+            spread: 70,
+            origin: { x: campSide === 'left' ? 0.28 : 0.72, y: 0.6 },
+          });
+        } catch {
+          // ignore confetti error
+        }
+
+        // 4. Non-blocking asynchronous sync to Supabase without triggering refetch/reset
+        if (isSupabaseConfigured) {
+          supabase
+            .from('kartu_temuan')
+            .update({ is_proven: true, real_shape: targetShape })
+            .eq('id', disc.id)
+            .then(() => {})
+            .catch((dbErr) => {
               console.warn('Supabase update is_proven notice:', dbErr);
-            }
-          }
-
-          if (onSetGuideMessage) {
-            onSetGuideMessage({
-              mood: 'celebrating',
-              text: `HEBAT! "${disc.objectName}" cocok di Pulau ${targetShapeDef.name}!`,
-              pointsEarned: evaluation.pointsAwarded,
             });
-          }
-
-          setStagedPlacement(null);
-          setSelectedDiscoveryId(null);
-        } else {
-          playTryAgainSound();
-          setStagedPlacement(null);
-          setReturningCardId(disc.id);
-          setShakeCardId(disc.id);
-          setTimeout(() => {
-            setReturningCardId(null);
-            setShakeCardId(null);
-          }, 650);
-
-          if (onSetGuideMessage) {
-            onSetGuideMessage({
-              mood: 'hint',
-              text: `Ups! Benda ini belum cocok dengan pulau ini. Coba amati lagi bentuk tepi dan pojoknya ya!`,
-            });
-          }
         }
 
-        if (evaluation.newState) {
-          onAttemptSubmitted(evaluation.newState);
+        if (onSetGuideMessage) {
+          onSetGuideMessage({
+            mood: 'celebrating',
+            text: `HEBAT! "${disc.objectName || (disc as any).nama_benda || 'Benda'}" langsung masuk ke Pulau ${targetShapeDef.name} dan berstatus Terbukti! (+10 XP)`,
+            pointsEarned: 10,
+          });
         }
+
+        setStagedPlacement(null);
+        setSelectedDiscoveryId(null);
+        onAttemptSubmitted(nextState);
       } catch (err: any) {
         console.error('Failed to submit shape check:', err);
         if (onSetGuideMessage) {
@@ -243,6 +306,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
       sessionId,
       group.id,
       campSide,
+      groupDiscoveries,
       onSetGuideMessage,
       guideCharacter,
       onAttemptSubmitted,
@@ -416,6 +480,27 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
         </span>
       </div>
 
+      {/* Banner Akumulasi XP Misi 1 */}
+      <div className="flex items-center justify-between bg-gradient-to-r from-amber-400 via-amber-300 to-amber-400 rounded-2xl px-4 py-2.5 border-2 border-amber-500 shadow-sm shadow-amber-200/50">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-amber-500/30 border border-amber-600 flex items-center justify-center text-lg">
+            ⭐
+          </div>
+          <div>
+            <span className="font-display font-black text-xs sm:text-sm text-slate-950 block leading-tight tracking-wide">
+              AKUMULASI XP KELOMPOK
+            </span>
+            <span className="text-[11px] font-bold text-amber-950">
+              {groupDiscoveries.length} Kartu Temuan Terkumpul
+            </span>
+          </div>
+        </div>
+        <div className="px-3.5 py-1.5 rounded-xl bg-slate-950 text-amber-300 font-display font-black text-sm sm:text-base border border-amber-400/50 shadow-inner flex items-center gap-1.5 animate-pop-in">
+          <span>⭐</span>
+          <span>+{totalGroupXp} XP</span>
+        </div>
+      </div>
+
       {/* Petunjuk Lokasi Pencarian Benda Sekolah */}
       <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/80 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs shadow-xs">
         <div className="font-bold text-emerald-950">
@@ -466,6 +551,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
               const isStaged = stagedPlacement?.discoveryId === disc.id;
               const isReturning = returningCardId === disc.id;
               const isShaking = shakeCardId === disc.id;
+              const cardXp = typeof disc.xp === 'number' && disc.xp > 0 ? disc.xp : (Number(disc.xp) || 10);
 
               const dragTransformStyle: React.CSSProperties = {
                 touchAction: 'none',
@@ -516,16 +602,25 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
                       alt={disc.objectName}
                       className="w-full h-full object-cover select-none pointer-events-none"
                     />
+
+                    {/* Lencana XP Emas di Pojok Kartu */}
+                    <div className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-lg bg-gradient-to-r from-amber-400 via-amber-300 to-amber-400 text-slate-950 border border-amber-500 font-display font-black text-[10px] shadow-sm flex items-center gap-0.5">
+                      <span>⭐</span>
+                      <span>+{cardXp} XP</span>
+                    </div>
                   </div>
 
-                  <div className="pointer-events-none select-none px-1 text-center">
-                    <p className="font-display text-sm font-bold text-slate-900 truncate">
-                      {disc.objectName}
-                    </p>
-                    <p className="text-xs font-semibold text-slate-500 truncate mt-0.5">
-                      {disc.studentName}
-                    </p>
-                  </div>
+                    <div className="pointer-events-none select-none px-1 text-center">
+                      <p className="font-display text-sm font-bold text-slate-900 truncate">
+                        {disc.objectName}
+                      </p>
+                      <p className="text-xs font-bold text-sky-700 truncate mt-0.5 flex items-center justify-center gap-1">
+                        <span>👤</span>
+                        <span>
+                          {disc.studentName || (disc as any).penemu || (disc as any).student_name || (disc as any).nama || 'Tanpa Nama'}
+                        </span>
+                      </p>
+                    </div>
                 </div>
               );
             })}
@@ -558,14 +653,21 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
             );
             const isStagedHere = stagedPlacement?.shape === shapeDef.id;
             const isSparkling = sparkleZoneShape === shapeDef.id;
-            const lockedInThisZone = lockedDiscoveries.filter(
-              (d) => d.classifiedShape === shapeDef.id
-            );
+            const lockedInThisZone = groupDiscoveries.filter((d) => {
+              const assigned = (d.island || d.classifiedShape || d.targetShape || '')
+                .toString()
+                .toLowerCase()
+                .trim();
+              if (assigned === shapeDef.id.toLowerCase().trim()) return true;
+              if (d.isLocked && (d.realShape === shapeDef.id || d.expectedShape === shapeDef.id)) return true;
+              return false;
+            });
 
             return (
               <div
                 key={shapeDef.id}
                 data-group-id={group.id}
+                data-shape-island={shapeDef.id}
                 ref={(el) => {
                   dropZoneRefs.current[shapeDef.id] = el;
                 }}
@@ -578,12 +680,12 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
                     : isStagedHere
                     ? 'border-amber-500 ring-4 ring-amber-300/70 shadow-[0_7px_0_#F59E0B] scale-[1.02]'
                     : `${shapeDef.portalBorder} ${shapeDef.portalShadow}`
-                } p-3.5 cursor-pointer flex flex-col justify-between min-h-[156px] select-none`}
+                } p-3 sm:p-3.5 cursor-pointer flex flex-col justify-between min-h-[168px] select-none`}
               >
                 {/* Portal Island Header */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <ShapeMascot3D shape={shapeDef.id} size={48} />
+                    <ShapeMascot3D shape={shapeDef.id} size={46} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span
@@ -604,23 +706,24 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
                   </div>
 
                   {lockedInThisZone.length > 0 && (
-                    <span className="px-2.5 py-1 rounded-xl bg-emerald-500 text-white font-display font-bold text-xs shrink-0 shadow-xs">
-                      {lockedInThisZone.length} Benda
+                    <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white font-display font-black text-xs shrink-0 shadow-xs flex items-center gap-1">
+                      <span>⭐</span>
+                      <span>{lockedInThisZone.length} Benda</span>
                     </span>
                   )}
                 </div>
 
-                {/* Drop Target Feedback Area */}
+                {/* Drop Target Feedback Area / Mini Photo Cards Inside Island */}
                 {isDropHovered ? (
-                  <div className="mt-2.5 rounded-2xl border-2 border-amber-500 bg-amber-100/95 py-3 px-3 text-center font-display text-sm font-bold text-amber-950 animate-pop-in">
+                  <div className="mt-2 rounded-2xl border-2 border-amber-500 bg-amber-100/95 py-3 px-3 text-center font-display text-sm font-bold text-amber-950 animate-pop-in">
                     Lepaskan Kartu di Pulau {shapeDef.name}!
                   </div>
                 ) : isSparkling ? (
-                  <div className="mt-2.5 rounded-2xl border-2 border-emerald-500 bg-emerald-100 py-3 px-3 text-center font-display text-sm font-bold text-emerald-950 animate-pop-in">
-                    TEPAT! +10 XP Terbuka!
+                  <div className="mt-2 rounded-2xl border-2 border-emerald-500 bg-emerald-100 py-3 px-3 text-center font-display text-sm font-bold text-emerald-950 animate-pop-in">
+                    TEPAT! +10 XP Berhasil Dikumpulkan!
                   </div>
                 ) : isStagedHere && activeDiscovery ? (
-                  <div className="mt-2.5 p-2 rounded-2xl bg-amber-100/90 border-2 border-amber-400 flex items-center gap-2.5 animate-pop-in">
+                  <div className="mt-2 p-2 rounded-2xl bg-amber-100/90 border-2 border-amber-400 flex items-center gap-2.5 animate-pop-in">
                     <GameAssetImage
                       src={activeDiscovery.photoUrl}
                       alt={activeDiscovery.objectName}
@@ -636,39 +739,57 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
                     </div>
                   </div>
                 ) : lockedInThisZone.length > 0 ? (
-                  <div className="mt-2.5 flex items-center gap-2 overflow-x-auto py-0.5">
-                    {lockedInThisZone.slice(0, 4).map((locked, idx) => (
-                      <div
-                        key={`m1-locked-${locked.id || idx}-${idx}`}
-                        className={`relative w-10 h-10 rounded-xl overflow-hidden border-2 ${
-                          locked.traitsVerified
-                            ? 'border-amber-400 ring-2 ring-amber-300/80 shadow-sm'
-                            : 'border-emerald-400 shadow-xs'
-                        } shrink-0`}
-                        title={locked.objectName}
-                      >
-                        <GameAssetImage
-                          src={locked.photoUrl}
-                          alt={locked.objectName}
-                          className="w-full h-full object-cover"
-                        />
-                        <span
-                          className={`absolute bottom-0 right-0 ${
-                            locked.traitsVerified
-                              ? 'bg-amber-400 text-slate-950 font-bold'
-                              : 'bg-emerald-500 text-white font-bold'
-                          } text-[9px] px-0.5 rounded-tl`}
-                        >
-                          {locked.traitsVerified ? 'P' : 'L'}
-                        </span>
-                      </div>
-                    ))}
-                    <span className="text-xs font-display font-bold text-emerald-800 ml-1">
-                      {lockedInThisZone.length} Benda Terbuka
-                    </span>
+                  <div className="mt-2 flex flex-col gap-1.5">
+                    {/* Mini Card Grid of Settled Photos */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[210px] overflow-y-auto p-2 rounded-2xl bg-white/90 border border-emerald-200 shadow-inner scrollbar-thin">
+                      {lockedInThisZone.map((locked, idx) => {
+                        const lockedXp =
+                          typeof locked.xp === 'number' && locked.xp > 0
+                            ? locked.xp
+                            : (Number(locked.xp) || 10);
+                        return (
+                          <div
+                            key={`island-item-${locked.id || idx}-${idx}`}
+                            className="relative rounded-2xl bg-white border-2 border-emerald-400 p-1.5 shadow-xs hover:shadow-md transition-all flex flex-col gap-1 select-none"
+                          >
+                            <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 border border-emerald-100">
+                              <GameAssetImage
+                                src={locked.photoUrl || (locked as any).image_url || (locked as any).imageUrl || ''}
+                                alt={locked.objectName || (locked as any).nama_benda || 'Benda Temuan'}
+                                className="w-full h-full object-cover"
+                              />
+                              <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded-lg bg-amber-400 text-slate-950 font-display font-black text-[9px] shadow-xs">
+                                ⭐+{lockedXp}
+                              </span>
+                              <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-lg bg-emerald-600 text-white font-display font-black text-[8px] shadow-xs flex items-center gap-0.5">
+                                ✅ Terbukti
+                              </span>
+                            </div>
+                            <div className="text-center px-0.5">
+                              <p
+                                className="font-display text-[11px] font-bold text-slate-900 truncate leading-tight"
+                                title={locked.objectName || (locked as any).nama_benda || 'Benda Temuan'}
+                              >
+                                {locked.objectName || (locked as any).nama_benda || 'Benda Temuan'}
+                              </p>
+                              <p className="text-[9px] font-semibold text-sky-700 truncate mt-0.5">
+                                {locked.studentName || (locked as any).penemu || (locked as any).student_name || (locked as any).nama || 'Tanpa Nama'}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] font-display font-bold text-emerald-950 px-1 pt-0.5">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>{lockedInThisZone.length} Benda Terbukti & Terkunci</span>
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-semibold">+ Tambah lagi</span>
+                    </div>
                   </div>
                 ) : (
-                  <div className="mt-2.5 rounded-2xl border-2 border-dashed border-slate-300 bg-white/75 py-2.5 px-3 text-center font-display text-xs font-bold text-slate-600">
+                  <div className="mt-2.5 rounded-2xl border-2 border-dashed border-slate-300 bg-white/75 py-3 px-3 text-center font-display text-xs font-bold text-slate-500">
                     Seret Kartu ke Pulau {shapeDef.name}
                   </div>
                 )}

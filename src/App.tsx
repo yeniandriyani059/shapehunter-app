@@ -73,20 +73,6 @@ function ShapeHunterApp() {
 
   // Supabase as Single Source of Truth & Direct Realtime Event Handling
   useEffect(() => {
-    // Purge any legacy cached discoveries from localStorage
-    try {
-      const raw = localStorage.getItem('shape_hunter_client_game_state_v2');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.discoveries) && parsed.discoveries.length > 0) {
-          parsed.discoveries = [];
-          localStorage.setItem('shape_hunter_client_game_state_v2', JSON.stringify(parsed));
-        }
-      }
-    } catch {
-      // ignore
-    }
-
     if (!isSupabaseConfigured) return;
 
     // 1. Initial Load: Fetch all discoveries from Supabase once on mount
@@ -95,10 +81,26 @@ function ShapeHunterApp() {
         const cards = await fetchKartuTemuanFromSupabase();
         if (Array.isArray(cards)) {
           setGameState((prev) => {
+            if (!prev || !prev.session) return prev;
+
+            const isCardInActiveSession = (cardRow: any) => {
+              if (cardRow.session_code && prev.session.code) {
+                return cardRow.session_code === prev.session.code;
+              }
+              if (cardRow.session_id && prev.session.id) {
+                return Number(cardRow.session_id) === Number(prev.session.id);
+              }
+              if (prev.session.createdAt && cardRow.created_at) {
+                return new Date(cardRow.created_at).getTime() >= new Date(prev.session.createdAt).getTime() - 10000;
+              }
+              return true;
+            };
+
+            const sessionCards = cards.filter(isCardInActiveSession);
             const seenIds = new Set<number>();
             const uniqueDiscoveries: Discovery[] = [];
 
-            for (const card of cards) {
+            for (const card of sessionCards) {
               const cardId = Number(card.id);
               if (seenIds.has(cardId)) continue;
               seenIds.add(cardId);
@@ -106,31 +108,39 @@ function ShapeHunterApp() {
               const existing = prev?.discoveries?.find((d) => d.id === cardId);
               const shape = (card.real_shape || 'lingkaran') as ShapeType;
               const isProven = Boolean(card.is_proven);
+              const cardXp = typeof card.xp === 'number' && card.xp > 0 ? card.xp : (Number(card.xp) || 10);
+              const studentName = (card as any).penemu || (card as any).student_name || (card as any).nama_siswa || (card as any).nama || existing?.studentName || 'Tanpa Nama';
 
               uniqueDiscoveries.push({
                 id: cardId,
                 sessionId: prev?.session?.id || 1,
                 groupId: Number(card.kelompok_id) || 1,
-                studentName: existing?.studentName || 'Petualang Cilik',
+                studentName: studentName,
                 objectName: card.nama_benda || 'Benda Temuan',
                 photoUrl: card.image_url || '',
                 realShape: shape,
                 expectedShape: shape,
                 studentClaimedShape: shape,
-                classifiedShape: existing?.classifiedShape ?? (isProven ? shape : null),
-                isLocked: existing?.isLocked ?? isProven,
+                classifiedShape: existing?.classifiedShape ?? (existing?.island ?? null),
+                island: existing?.island ?? existing?.classifiedShape ?? null,
+                targetShape: existing?.targetShape ?? existing?.island ?? null,
+                isLocked: existing?.isLocked ?? false,
                 annotationsJson: existing?.annotationsJson ?? '[]',
                 traitsVerified: isProven,
                 isProven: isProven,
+                xp: cardXp,
                 createdAt: existing?.createdAt || new Date().toISOString(),
               });
             }
 
             const updatedScores = prev.scores.map((score) => {
-              const groupCardCount = uniqueDiscoveries.filter((d) => d.groupId === score.groupId).length;
+              const groupCards = uniqueDiscoveries.filter((d) => d.groupId === score.groupId);
+              const groupCardCount = groupCards.length;
+              const accumulatedCardXp = groupCards.reduce((sum, d) => sum + (d.xp || 10), 0);
               return {
                 ...score,
                 totalDiscoveries: groupCardCount,
+                xp: Math.max(score.xp, accumulatedCardXp),
                 updatedAt: new Date().toISOString(),
               };
             });
@@ -170,21 +180,26 @@ function ShapeHunterApp() {
 
             const shape = (newRow.real_shape || 'lingkaran') as ShapeType;
             const isProven = Boolean(newRow.is_proven);
+            const cardXp = typeof newRow.xp === 'number' && newRow.xp > 0 ? newRow.xp : (Number(newRow.xp) || 10);
+            const studentName = newRow.penemu || newRow.student_name || newRow.nama_siswa || newRow.nama || 'Tanpa Nama';
             const newDiscovery: Discovery = {
               id: cardId,
               sessionId: prev.session.id || 1,
               groupId: Number(newRow.kelompok_id) || 1,
-              studentName: 'Petualang Cilik',
+              studentName: studentName,
               objectName: newRow.nama_benda || 'Benda Temuan',
               photoUrl: newRow.image_url || '',
               realShape: shape,
               expectedShape: shape,
               studentClaimedShape: shape,
-              classifiedShape: isProven ? shape : null,
-              isLocked: isProven,
+              classifiedShape: null,
+              island: null,
+              targetShape: null,
+              isLocked: false,
               annotationsJson: '[]',
               traitsVerified: isProven,
               isProven: isProven,
+              xp: cardXp,
               createdAt: new Date().toISOString(),
             };
 
@@ -192,10 +207,13 @@ function ShapeHunterApp() {
 
             const nextDiscoveries = [newDiscovery, ...prev.discoveries];
             const updatedScores = prev.scores.map((score) => {
-              const count = nextDiscoveries.filter((d) => d.groupId === score.groupId).length;
+              const groupCards = nextDiscoveries.filter((d) => d.groupId === score.groupId);
+              const count = groupCards.length;
+              const accumulatedCardXp = groupCards.reduce((sum, d) => sum + (d.xp || 10), 0);
               return {
                 ...score,
                 totalDiscoveries: count,
+                xp: Math.max(score.xp, accumulatedCardXp),
                 updatedAt: new Date().toISOString(),
               };
             });
@@ -221,10 +239,24 @@ function ShapeHunterApp() {
           setGameState((prev) => {
             const updatedDiscoveries = prev.discoveries.map((d) => {
               if (d.id === cardId) {
-                const shape = (updatedRow.real_shape || d.realShape) as ShapeType;
+                const shape = (updatedRow.real_shape || d.realShape || 'lingkaran') as ShapeType;
                 const isProven = Boolean(updatedRow.is_proven ?? d.isProven);
+                const updatedStudentName =
+                  updatedRow.penemu ||
+                  updatedRow.student_name ||
+                  updatedRow.nama_siswa ||
+                  updatedRow.nama ||
+                  d.studentName ||
+                  'Tanpa Nama';
+                const resolvedIsland =
+                  updatedRow.pulau ||
+                  updatedRow.island ||
+                  d.island ||
+                  d.classifiedShape ||
+                  (isProven ? shape : null);
                 return {
                   ...d,
+                  studentName: updatedStudentName,
                   objectName: updatedRow.nama_benda || d.objectName,
                   photoUrl: updatedRow.image_url || d.photoUrl,
                   realShape: shape,
@@ -232,8 +264,10 @@ function ShapeHunterApp() {
                   groupId: Number(updatedRow.kelompok_id) || d.groupId,
                   isProven: isProven,
                   traitsVerified: isProven,
-                  classifiedShape: isProven ? shape : d.classifiedShape,
-                  isLocked: isProven ? true : d.isLocked,
+                  classifiedShape: resolvedIsland,
+                  island: resolvedIsland,
+                  targetShape: resolvedIsland,
+                  isLocked: Boolean(resolvedIsland || d.isLocked),
                 };
               }
               return d;
@@ -729,9 +763,14 @@ function ShapeHunterApp() {
                                   {shapeDef.symbol} {shapeDef.name}
                                 </span>
 
+                                {/* XP Badge Overlay */}
+                                <span className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 border border-amber-300 font-display font-black text-[9px] shadow-xs flex items-center gap-0.5">
+                                  ⭐ +{disc.xp || 10} XP
+                                </span>
+
                                 {/* Group Badge Overlay */}
                                 {grp && (
-                                  <span className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-xl bg-sky-100/90 text-sky-950 border border-sky-300 font-display font-bold text-[9px] shadow-2xs truncate max-w-[85px]">
+                                  <span className="absolute bottom-1.5 right-1.5 px-2 py-0.5 rounded-xl bg-sky-100/90 text-sky-950 border border-sky-300 font-display font-bold text-[9px] shadow-2xs truncate max-w-[85px]">
                                     {formatCampDisplayName(grp.name)}
                                   </span>
                                 )}

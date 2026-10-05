@@ -9,6 +9,7 @@ export interface GameSession {
   currentLevel: number; // 1 = Misi 1 — Kelompokkan!, 2 = Misi 2 — Buktikan!, 3 = Misi 3 — Jelajah!
   timerDurationSeconds: number;
   timerRemainingSeconds: number;
+  activeGroupCount?: number; // 2, 3, or 4 active camps
   missionTitle: string;
   missionTargetShape: string;
   missionTargetCount: number;
@@ -42,10 +43,13 @@ export interface Discovery {
   studentClaimedShape?: ShapeType | null; // Initial guess selected by student in form
   expectedShape: ShapeType;
   classifiedShape: ShapeType | null;
+  island?: ShapeType | null; // Target shape island where the card has been dropped
+  targetShape?: ShapeType | null; // Shape island placement
   isLocked: boolean;
   annotationsJson: string;
   traitsVerified: boolean;
   isProven?: boolean;
+  xp?: number;
   createdAt: string;
 }
 

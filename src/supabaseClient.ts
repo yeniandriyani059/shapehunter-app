@@ -93,6 +93,8 @@ export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
   real_shape: string;
   kelompok_id: number;
   is_proven: boolean;
+  xp: number;
+  penemu: string;
 }>> {
   if (!isSupabaseConfigured) return [];
 
@@ -115,6 +117,8 @@ export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
         real_shape: string;
         kelompok_id: number;
         is_proven: boolean;
+        xp: number;
+        penemu: string;
       }> = [];
 
       for (let idx = 0; idx < data.length; idx++) {
@@ -126,6 +130,8 @@ export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
 
         const rawGroupId = Number(item.kelompok_id);
         const validGroupId = !isNaN(rawGroupId) && rawGroupId > 0 ? rawGroupId : 1;
+        const xpValue = typeof item.xp === 'number' && !isNaN(item.xp) && item.xp > 0 ? item.xp : (Number(item.xp) || 10);
+        const penemuName = String(item.penemu || item.nama_siswa || item.student_name || item.nama || 'Tanpa Nama');
 
         results.push({
           id: validId,
@@ -134,6 +140,8 @@ export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
           real_shape: String(item.real_shape || 'lingkaran'),
           kelompok_id: validGroupId,
           is_proven: Boolean(item.is_proven),
+          xp: xpValue,
+          penemu: penemuName,
         });
       }
 

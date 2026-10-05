@@ -237,7 +237,7 @@ export const ProveModal: React.FC<ProveModalProps> = ({
               "{discovery.objectName}"
             </h3>
             <p className="text-xs font-semibold text-slate-500">
-              Dipotret oleh: {discovery.studentName || 'Petualang Cilik'}
+              Dipotret oleh: {discovery.studentName || (discovery as any).penemu || (discovery as any).student_name || (discovery as any).nama || 'Tanpa Nama'}
             </p>
             {discovery.traitsVerified ? (
               <div className="mt-1 px-3 py-1 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold inline-flex items-center gap-1.5">

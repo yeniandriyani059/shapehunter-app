@@ -77,18 +77,28 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
 }) => {
   const { session, groups, discoveries } = state;
 
+  const activeGroupCount = Math.min(Math.max(session.activeGroupCount || 2, 2), groups.length);
+  const activeGroups = groups.slice(0, activeGroupCount);
+
   const [selectedGroupId, setSelectedGroupId] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('shape_hunter_student_group_id');
       const parsed = saved ? parseInt(saved, 10) : NaN;
-      if (!isNaN(parsed) && groups.some((g) => g.id === parsed)) {
+      if (!isNaN(parsed) && activeGroups.some((g) => g.id === parsed)) {
         return parsed;
       }
     } catch {
       // ignore
     }
-    return groups[0]?.id || 1;
+    return activeGroups[0]?.id || groups[0]?.id || 1;
   });
+
+  // Keep selected group within active groups
+  React.useEffect(() => {
+    if (!activeGroups.some((g) => g.id === selectedGroupId) && activeGroups.length > 0) {
+      setSelectedGroupId(activeGroups[0].id);
+    }
+  }, [activeGroups, selectedGroupId]);
   const [studentName, setStudentName] = useState('');
   const [objectName, setObjectName] = useState('');
   const [expectedShape, setExpectedShape] = useState<ShapeType>('lingkaran');
@@ -145,6 +155,11 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
       return;
     }
 
+    if (!studentName.trim()) {
+      setHintMsg('Silakan tulis nama petualang / penemu foto terlebih dahulu!');
+      return;
+    }
+
     setUploading(true);
     setHintMsg(null);
     setUploadSuccess(null);
@@ -152,6 +167,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
     try {
       const aiResult = await analyzeShapeClientSide(photoPreview);
       const finalObjectName = objectName.trim() || aiResult.namaBenda || 'Benda Temuan';
+      const finalStudentName = studentName.trim() || 'Tanpa Nama';
       const assignedShape = (aiResult.realShape || expectedShape || 'lingkaran') as ShapeType;
 
       let finalPhotoUrl = photoPreview;
@@ -190,7 +206,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
           }
         }
 
-        // 2. Simpan baris ke tabel kartu_temuan Supabase
+        // 2. Simpan baris ke tabel kartu_temuan Supabase dengan penemu & default 10 XP
         const { error: insertErr } = await supabase
           .from('kartu_temuan')
           .insert({
@@ -199,6 +215,8 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
             real_shape: assignedShape,
             kelompok_id: selectedGroupId,
             is_proven: false,
+            xp: 10,
+            penemu: finalStudentName,
           });
 
         if (insertErr) {
@@ -208,7 +226,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
         // Fallback hanya saat offline / tanpa Supabase
         const { newState } = addDiscoveryToState(state, {
           groupId: selectedGroupId,
-          studentName: studentName.trim() || 'Petualang Cilik',
+          studentName: finalStudentName,
           objectName: finalObjectName,
           photoUrl: finalPhotoUrl,
           expectedShape,
@@ -221,7 +239,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
       playPhotoIncomingSound();
       const targetGroup = groups.find((g) => g.id === selectedGroupId);
       setUploadSuccess(
-        `HEBAT! Kartu "${finalObjectName}" (${assignedShape.toUpperCase()}) berhasil terkirim ke Kemah ${
+        `⭐ +10 XP! Kartu "${finalObjectName}" (${assignedShape.toUpperCase()}) berhasil terkirim ke Kemah ${
           targetGroup ? formatCampDisplayName(targetGroup.name) : 'Timmu'
         }!`
       );
@@ -323,10 +341,10 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
           {/* 1. Pilih Kemah Timmu */}
           <div>
             <label className="block font-display text-lg font-bold text-slate-900 mb-2.5">
-              1. Pilih Kemah Timmu:
+              1. Pilih Kemah Timmu ({activeGroups.length} Kemah Bertanding):
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {groups.map((g) => {
+              {activeGroups.map((g) => {
                 const isSelected = selectedGroupId === g.id;
                 const dotBg =
                   g.color === 'blue'
@@ -504,13 +522,14 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
             </div>
             <div>
               <label className="block font-display text-base font-bold text-slate-800 mb-1.5">
-                Nama Petualang:
+                Nama Petualang / Penemu:
               </label>
               <input
                 type="text"
+                required
                 value={studentName}
                 onChange={(e) => setStudentName(e.target.value)}
-                placeholder="Contoh: Budi & Siti"
+                placeholder="Contoh: Budi, Siti, atau Tim A"
                 className="w-full px-4 py-3 rounded-2xl border-2 border-slate-300 font-display text-base font-bold focus:outline-none focus:border-sky-500"
               />
             </div>

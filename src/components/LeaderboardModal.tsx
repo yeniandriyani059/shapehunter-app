@@ -55,7 +55,9 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
   if (!isOpen) return null;
 
-  const { groups, scores, discoveries } = state;
+  const { session, groups, scores, discoveries } = state;
+  const activeGroupCount = Math.min(Math.max(session.activeGroupCount || 2, 2), groups.length);
+  const activeGroups = groups.slice(0, activeGroupCount);
 
   // Calculate badges for a group
   const getGroupBadges = (group: Group, score?: GroupScore): AchievementBadge[] => {
@@ -128,7 +130,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
   };
 
   // Sort groups by XP (desc), then accuracy (desc), then correct count (desc)
-  const sortedGroups = [...groups].sort((a, b) => {
+  const sortedGroups = [...activeGroups].sort((a, b) => {
     const scoreA = scores.find((s) => s.groupId === a.id);
     const scoreB = scores.find((s) => s.groupId === b.id);
     const xpA = scoreA?.xp ?? 0;

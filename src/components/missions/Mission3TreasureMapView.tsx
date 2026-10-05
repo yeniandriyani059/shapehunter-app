@@ -73,9 +73,9 @@ export const Mission3TreasureMapView: React.FC<Mission3TreasureMapViewProps> = (
   guideCharacter,
   onSetGuideMessage,
 }) => {
-  // Proven cards from Mission 1 & 2
+  // Proven cards from Mission 1 & 2 (Flows seamlessly from Misi 1 & 2 into Cauldron)
   const provenDiscoveries = groupDiscoveries.filter(
-    (d) => d.traitsVerified || d.isProven
+    (d) => d.traitsVerified || d.isProven || Boolean(d.island || d.classifiedShape)
   );
 
   // Helper to resolve discovery shape
@@ -865,7 +865,7 @@ export const Mission3TreasureMapView: React.FC<Mission3TreasureMapViewProps> = (
                       {disc.objectName}
                     </p>
                     <p className="text-[10px] text-slate-500 truncate mt-0.5">
-                      {disc.studentName}
+                      {disc.studentName || (disc as any).penemu || (disc as any).student_name || (disc as any).nama || 'Tanpa Nama'}
                     </p>
                   </div>
 

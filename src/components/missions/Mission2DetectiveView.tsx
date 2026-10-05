@@ -106,6 +106,14 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
     setCorners((prev) => Math.max(0, prev - 1));
   };
 
+  const modalShapeKey = (modalDiscovery?.island ||
+    modalDiscovery?.classifiedShape ||
+    modalDiscovery?.realShape ||
+    modalDiscovery?.expectedShape ||
+    'lingkaran') as ShapeType;
+  const modalShapeDef =
+    SHAPE_DEFINITIONS[modalShapeKey] || SHAPE_DEFINITIONS.lingkaran;
+
   const handleSubmitProve = async () => {
     if (!modalDiscovery || submitting || !isPlaying) return;
     playClickSound();
@@ -113,9 +121,12 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
     setFeedback({ status: null, message: '' });
 
     try {
+      // Circle allows 0 or 1 curved side with 0 corners
       const isCorrect =
-        sides === modalShapeDef.sidesCount &&
-        corners === modalShapeDef.cornersCount;
+        modalShapeKey === 'lingkaran'
+          ? (sides === 0 || sides === 1) && corners === 0
+          : sides === modalShapeDef.sidesCount &&
+            corners === modalShapeDef.cornersCount;
 
       if (isCorrect) {
         playShapeLockSound();
@@ -133,7 +144,7 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
 
         setFeedback({
           status: 'correct',
-          message: `⭐ LUAR BIASA! Terbukti "${modalDiscovery.objectName}" memiliki ${sides} sisi dan ${corners} titik sudut! Kartu kini terkunci (+${totalPoints} XP ⭐)`,
+          message: `⭐ LUAR BIASA! Terbukti "${modalDiscovery.objectName}" cocok sebagai ${modalShapeDef.name.toUpperCase()} (${sides} sisi & ${corners} titik sudut)! (+${totalPoints} XP ⭐)`,
           pointsAwarded: totalPoints,
         });
 
@@ -152,7 +163,14 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
         const currentState = loadSavedGameState();
         const updatedDiscoveries = currentState.discoveries.map((d) =>
           d.id === modalDiscovery.id
-            ? { ...d, traitsVerified: true, isProven: true, isLocked: true }
+            ? {
+                ...d,
+                traitsVerified: true,
+                isProven: true,
+                isLocked: true,
+                island: d.island || modalShapeKey,
+                classifiedShape: d.classifiedShape || modalShapeKey,
+              }
             : d
         );
         const updatedScores = currentState.scores.map((s) =>
@@ -179,9 +197,9 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
       } else {
         playTryAgainSound();
         const motivationalMessages = [
-          'Ups, hitunganmu belum tepat! Coba amati dan hitung kembali tepi & pojok bendanya ya!',
+          `Periksa lagi: Bangun ${modalShapeDef.name} memiliki ${modalShapeDef.sidesCount} sisi dan ${modalShapeDef.cornersCount} sudut!`,
           'Hitunganmu hampir mendekati! Coba cek dan hitung ulang bersama kelompokmu!',
-          'Ayo periksa kembali! Pastikan kamu menghitung semua garis lurus dan sudutnya dengan teliti!',
+          'Ayo periksa kembali! Pastikan kamu menghitung semua garis tepi dan sudutnya dengan teliti!',
           'Belum pas nih! Coba amati dan hitung ulang tepi serta pojoknya bersama tim ya!',
         ];
         const randomMsg =
@@ -323,8 +341,9 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
                     <h5 className="font-display text-sm font-bold text-slate-900 truncate">
                       {disc.objectName}
                     </h5>
-                    <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                      {disc.studentName}
+                    <p className="text-[11px] font-bold text-sky-700 truncate mt-0.5 flex items-center justify-center gap-1">
+                      <span>👤</span>
+                      <span>{disc.studentName || (disc as any).penemu || (disc as any).student_name || (disc as any).nama || 'Tanpa Nama'}</span>
                     </p>
                   </div>
 

@@ -69,6 +69,7 @@ export function getDefaultGameState(): FullSessionState {
     currentLevel: 1,
     timerDurationSeconds: 600,
     timerRemainingSeconds: 600,
+    activeGroupCount: 2, // Default: 2 kemah bertanding
     missionTitle: 'Misi 1 — Kelompokkan Bentuk!',
     missionTargetShape: 'lingkaran',
     missionTargetCount: 5,
@@ -241,12 +242,8 @@ export function evaluateShapeAttempt(
     };
   }
 
-  const expected = (discovery.realShape || discovery.expectedShape).toLowerCase();
-  const selected = params.selectedShape.toLowerCase();
-  const isCorrect = expected === selected;
-
-  const pointsAwarded = isCorrect ? 10 : -5;
-
+  const pointsAwarded = 10;
+  const isCorrect = true;
 
   // Record attempt
   const newAttempt: GameAttempt = {
@@ -255,24 +252,26 @@ export function evaluateShapeAttempt(
     groupId: params.groupId,
     discoveryId: params.discoveryId,
     selectedShape: params.selectedShape,
-    isCorrect,
+    isCorrect: true,
     levelAtAttempt: currentState.session.currentLevel,
-    pointsAwarded,
+    pointsAwarded: 10,
     bonusAwarded: 0,
-    reasonText: isCorrect
-      ? 'Bentuk cocok dengan ciri bangun datar!'
-      : 'Bentuk belum cocok dengan ciri bangun datar.',
+    reasonText: `Benda masuk ke Pulau ${params.selectedShape.toUpperCase()} dan terbukti cocok!`,
     createdAt: new Date().toISOString(),
   };
 
-  // Update discovery
+  // Update discovery: lock into target shape island with status Terbukti
   const updatedDiscoveries = currentState.discoveries.map((d) => {
     if (d.id === params.discoveryId) {
       return {
         ...d,
-        classifiedShape: isCorrect ? params.selectedShape : d.classifiedShape,
-        isLocked: isCorrect ? true : d.isLocked,
-        isProven: isCorrect ? true : d.isProven,
+        island: params.selectedShape,
+        targetShape: params.selectedShape,
+        classifiedShape: params.selectedShape,
+        isLocked: true,
+        isProven: true,
+        traitsVerified: true,
+        xp: typeof d.xp === 'number' && d.xp > 0 ? d.xp : 10,
       };
     }
     return d;
@@ -282,9 +281,8 @@ export function evaluateShapeAttempt(
   const updatedScores = currentState.scores.map((score) => {
     if (score.groupId === params.groupId) {
       const newAttempts = score.attemptCount + 1;
-      const newCorrect = score.correctCount + (isCorrect ? 1 : 0);
-      const pointsAwarded = isCorrect ? 10 : -5;
-      const newXp = Math.max(0, score.xp + pointsAwarded);
+      const newCorrect = score.correctCount + 1;
+      const newXp = score.xp + 10;
       const newAccuracy = Math.round((newCorrect / newAttempts) * 100);
 
       return {
@@ -308,9 +306,7 @@ export function evaluateShapeAttempt(
 
   saveGameState(newState);
 
-  const message = isCorrect
-    ? `🎉 Hebat! "${discovery.objectName}" cocok dengan ${params.selectedShape.toUpperCase()} (+10 XP)`
-    : `Ups, "${discovery.objectName}" bukan ${params.selectedShape.toUpperCase()}. Coba amati lagi ya!`;
+  const message = `🎉 Hebat! "${discovery.objectName}" langsung masuk ke Pulau ${params.selectedShape.toUpperCase()} dan berstatus Terbukti (+10 XP)`;
 
   return {
     newState,

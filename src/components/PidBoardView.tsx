@@ -34,6 +34,8 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
   const { session, groups, discoveries, scores } = state;
 
   const sortedGroups = [...groups].sort((a, b) => a.arenaSlot - b.arenaSlot);
+  const activeGroupCount = Math.min(Math.max(session.activeGroupCount || 2, 2), groups.length);
+  const activeGroups = sortedGroups.slice(0, activeGroupCount);
 
   // Detect whether current client is on mobile/tablet (< 1024px)
   const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
@@ -105,9 +107,61 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
     return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'; // Grid 3 Kolom (2 Baris)
   };
 
+  // Strict group card isolation helper: maps cards to their specific camp
+  const filterDiscoveriesForGroup = (allDiscoveries: Discovery[], grp: Group) => {
+    return allDiscoveries.filter((d) => {
+      // 1. Direct integer match
+      if (d.groupId === grp.id) return true;
+      if (typeof (d as any).kelompok_id === 'number' && (d as any).kelompok_id === grp.id) return true;
+      if (String((d as any).kelompok_id) === String(grp.id)) return true;
+
+      // 2. Team name matching (e.g. 'harimau_biru' / 'Harimau Biru' / 'Kelompok 1')
+      const cardTeam = String((d as any).team || (d as any).kelompok || (d as any).groupName || '').toLowerCase().trim();
+      const groupName = grp.name.toLowerCase().trim();
+      if (cardTeam && (cardTeam === groupName || cardTeam.includes(groupName) || groupName.includes(cardTeam))) {
+        return true;
+      }
+      if (cardTeam.includes('1') && grp.id === 1) return true;
+      if (cardTeam.includes('2') && grp.id === 2) return true;
+      if (cardTeam.includes('3') && grp.id === 3) return true;
+      if (cardTeam.includes('4') && grp.id === 4) return true;
+
+      return false;
+    });
+  };
+
+  // Safe isolated attempt handler: merges group update without destroying or overwriting other groups' cards
+  const handleGroupAttemptSubmitted = (newStateFromGroup: FullSessionState) => {
+    // 1. Combine all discoveries, ensuring other groups' cards remain 100% intact
+    const currentDiscoveriesMap = new Map<number, Discovery>();
+    (state.discoveries || []).forEach((d) => currentDiscoveriesMap.set(d.id, d));
+    (newStateFromGroup.discoveries || []).forEach((d) => currentDiscoveriesMap.set(d.id, d));
+
+    const mergedDiscoveries = Array.from(currentDiscoveriesMap.values());
+
+    // 2. Merge scores: update only the submitting group's score
+    const mergedScores = (state.scores || []).map((score) => {
+      const updatedScore = newStateFromGroup.scores.find((s) => s.groupId === score.groupId);
+      return updatedScore || score;
+    });
+
+    const mergedState: FullSessionState = {
+      ...state,
+      session: newStateFromGroup.session || state.session,
+      discoveries: mergedDiscoveries,
+      scores: mergedScores,
+      attempts: [...(newStateFromGroup.attempts || []), ...(state.attempts || [])].slice(0, 100),
+    };
+
+    onStateChange(mergedState);
+  };
+
   const activeFocusGroup =
     sortedGroups.find((g) => g.id === focusedGroupId) || sortedGroups[0];
   const activeFocusScore = scores.find((s) => s.groupId === activeFocusGroup?.id);
+  const activeFocusDiscoveries = activeFocusGroup
+    ? filterDiscoveriesForGroup(discoveries, activeFocusGroup)
+    : [];
 
   // If on mobile/tablet screen, enforce Single Group View for student device optimization
   const effectiveLayoutMode = isMobileScreen ? 'focus' : layoutMode;
@@ -124,7 +178,7 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
               Arena Permainan
             </span>
             <span className="text-xs text-slate-300 font-bold hidden sm:inline">
-              · {sortedGroups.length} Kemah Bertanding
+              · {activeGroups.length} Kemah Bertanding
             </span>
           </div>
         </div>
@@ -213,12 +267,12 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
         </div>
 
       {/* 2. GROUP SELECTOR TABS (WHEN IN FOCUS MODE OR OPTIONAL QUICK NAV) */}
-      {effectiveLayoutMode === 'focus' && sortedGroups.length > 1 && (
+      {effectiveLayoutMode === 'focus' && activeGroups.length > 1 && (
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none px-1">
           <span className="text-xs font-display font-bold text-slate-600 uppercase tracking-wider shrink-0 mr-1">
             Pilih Kemah:
           </span>
-          {sortedGroups.map((grp) => {
+          {activeGroups.map((grp) => {
             const isSelected = grp.id === focusedGroupId;
             const sc = scores.find((s) => s.groupId === grp.id);
             const xp = sc?.xp ?? 0;
@@ -259,7 +313,7 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
       )}
 
       {/* 3. ARENA CONTENT CONTAINER */}
-      {sortedGroups.length === 0 ? (
+      {activeGroups.length === 0 ? (
         <div className="max-w-md mx-auto my-12 p-8 rounded-3xl bg-white/95 border-4 border-amber-400 text-center">
           <p className="font-display font-bold text-slate-800">
             Belum ada kelompok yang terdaftar dalam sesi ini.
@@ -280,10 +334,8 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
               isPlaying={isPlaying}
               group={activeFocusGroup}
               score={activeFocusScore}
-              groupDiscoveries={discoveries.filter(
-                (d) => d.groupId === activeFocusGroup.id
-              )}
-              onAttemptSubmitted={onStateChange}
+              groupDiscoveries={activeFocusDiscoveries}
+              onAttemptSubmitted={handleGroupAttemptSubmitted}
               isFocusMode={true}
             />
           )}
@@ -292,14 +344,14 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
         /* RESPONSIVE CSS GRID: 1-2 (Split Screen), 2x2 (3-4 groups), or 3-columns (5-6+ groups) */
         <div
           className={`grid ${getGridClass(
-            sortedGroups.length
+            activeGroups.length
           )} scroll-smooth animate-fade-in ${
-            sortedGroups.length >= 5 ? 'max-h-[82vh] overflow-y-auto pr-1' : ''
+            activeGroups.length >= 5 ? 'max-h-[82vh] overflow-y-auto pr-1' : ''
           }`}
         >
-          {sortedGroups.map((grp, index) => {
+          {activeGroups.map((grp, index) => {
             const grpScore = scores.find((s) => s.groupId === grp.id);
-            const grpDiscoveries = discoveries.filter((d) => d.groupId === grp.id);
+            const grpDiscoveries = filterDiscoveriesForGroup(discoveries, grp);
             const side = index % 2 === 0 ? 'left' : 'right';
 
             return (
@@ -315,7 +367,7 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
                 group={grp}
                 score={grpScore}
                 groupDiscoveries={grpDiscoveries}
-                onAttemptSubmitted={onStateChange}
+                onAttemptSubmitted={handleGroupAttemptSubmitted}
                 isFocusMode={false}
                 onFocusGroup={() => {
                   setFocusedGroupId(grp.id);
