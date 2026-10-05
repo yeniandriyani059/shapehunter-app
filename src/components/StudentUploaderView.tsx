@@ -19,6 +19,12 @@ import { LiveCameraModal } from './LiveCameraModal.tsx';
 import { analyzeShapeClientSide } from '../utils/shapeDetector.ts';
 import { addDiscoveryToState, addDiscoveryToStateAsync } from '../utils/gameStore.ts';
 import {
+  supabase,
+  isSupabaseConfigured,
+  uploadPhotoToSupabaseBucket,
+  syncKartuTemuanToSupabase,
+} from '../supabaseClient.ts';
+import {
   playClickSound,
   playPhotoIncomingSound,
 } from '../utils/sound.ts';
@@ -149,22 +155,91 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
     setUploadSuccess(null);
 
     try {
-      // Analyze shape client-side (intelligent computer vision / Gemini client)
+      // 1. Analyze shape client-side (AI computer vision)
       const aiResult = await analyzeShapeClientSide(photoPreview);
       const finalObjectName = objectName.trim() || aiResult.namaBenda || 'Benda Temuan';
+      const assignedShape = (aiResult.realShape || expectedShape || 'lingkaran') as ShapeType;
 
-      // Store in client-side state and sync with Supabase storage & public.kartu_temuan table
-      const { newState, newDiscovery } = await addDiscoveryToStateAsync(state, {
+      // 2. Upload file to Supabase Storage bucket 'foto_temuan'
+      let finalPhotoUrl = photoPreview;
+      if (isSupabaseConfigured) {
+        try {
+          let fileToUpload: Uint8Array | Blob | File | null = rawFile;
+          let contentType = 'image/jpeg';
+          let fileExt = 'jpg';
+
+          if (!fileToUpload && photoPreview.startsWith('data:image/')) {
+            const match = photoPreview.match(/^data:(image\/[a-zA-Z0-9\+\-]+);base64,(.+)$/);
+            if (match) {
+              contentType = match[1];
+              fileExt = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+              const binaryStr = atob(match[2]);
+              const bytes = new Uint8Array(binaryStr.length);
+              for (let i = 0; i < binaryStr.length; i++) {
+                bytes[i] = binaryStr.charCodeAt(i);
+              }
+              fileToUpload = bytes;
+            }
+          }
+
+          if (fileToUpload) {
+            const fileName = `temuan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+            const { data: storageData, error: storageErr } = await supabase.storage
+              .from('foto_temuan')
+              .upload(fileName, fileToUpload, {
+                contentType,
+                upsert: true,
+              });
+
+            if (storageErr) {
+              console.warn('Supabase storage upload error:', storageErr.message);
+            } else if (storageData?.path) {
+              const { data: urlData } = supabase.storage
+                .from('foto_temuan')
+                .getPublicUrl(storageData.path);
+              if (urlData?.publicUrl) {
+                finalPhotoUrl = urlData.publicUrl;
+              }
+            }
+          }
+        } catch (storageException) {
+          console.warn('Supabase Storage exception:', storageException);
+        }
+      }
+
+      // 3. Save discovery row into Supabase table "public.kartu_temuan"
+      if (isSupabaseConfigured) {
+        try {
+          const { error: insertErr } = await supabase
+            .from('kartu_temuan')
+            .insert({
+              image_url: finalPhotoUrl,
+              nama_benda: finalObjectName,
+              real_shape: assignedShape,
+              kelompok_id: selectedGroupId,
+              is_proven: false,
+            });
+
+          if (insertErr) {
+            console.warn('Supabase kartu_temuan insert error:', insertErr.message);
+          }
+        } catch (tableException) {
+          console.warn('Supabase table exception:', tableException);
+        }
+      }
+
+      // 4. Update state and notify game session
+      const { newState, newDiscovery } = addDiscoveryToState(state, {
         groupId: selectedGroupId,
         studentName: studentName.trim() || 'Petualang Cilik',
         objectName: finalObjectName,
-        photoUrl: photoPreview,
+        photoUrl: finalPhotoUrl,
         expectedShape,
-        realShape: aiResult.realShape,
+        realShape: assignedShape,
         studentClaimedShape: expectedShape,
       });
 
-      // Also notify backend server and WebSocket clients
+      // 5. Also notify backend server and WebSocket clients
       try {
         fetch('/api/discoveries', {
           method: 'POST',
@@ -173,9 +248,9 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
             groupId: selectedGroupId,
             studentName: studentName.trim() || 'Petualang Cilik',
             objectName: finalObjectName,
-            photoUrl: newDiscovery.photoUrl,
+            photoUrl: finalPhotoUrl,
             expectedShape,
-            realShape: aiResult.realShape,
+            realShape: assignedShape,
             studentClaimedShape: expectedShape,
           }),
         }).catch(() => {});
@@ -186,7 +261,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
       playPhotoIncomingSound();
       const targetGroup = groups.find((g) => g.id === selectedGroupId);
       setUploadSuccess(
-        `HEBAT! Kartu "${finalObjectName}" (${aiResult.realShape.toUpperCase()}) sudah terbang ke Kemah ${
+        `HEBAT! Kartu "${finalObjectName}" (${assignedShape.toUpperCase()}) sudah terbang ke Kemah ${
           targetGroup ? formatCampDisplayName(targetGroup.name) : 'Timmu'
         }!`
       );

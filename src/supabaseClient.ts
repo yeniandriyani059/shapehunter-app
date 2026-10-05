@@ -128,11 +128,11 @@ export async function syncKartuTemuanToSupabase(discovery: {
  */
 export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
   id: number;
-  photoUrl: string;
-  objectName: string;
-  realShape: string;
-  groupId: number;
-  isProven: boolean;
+  image_url: string;
+  nama_benda: string;
+  real_shape: string;
+  kelompok_id: number;
+  is_proven: boolean;
 }>> {
   if (!isSupabaseConfigured) return [];
 
@@ -150,17 +150,17 @@ export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
     if (Array.isArray(data)) {
       return data.map((item: any, idx: number) => {
         const rawId = Number(item.id);
-        const validId = !isNaN(rawId) && rawId !== 0 ? rawId : (Date.now() + idx + Math.floor(Math.random() * 1000));
-        const rawGroupId = Number(item.kelompok_id || item.group_id || item.groupId);
+        const validId = !isNaN(rawId) && rawId !== 0 ? rawId : (idx + 1);
+        const rawGroupId = Number(item.kelompok_id);
         const validGroupId = !isNaN(rawGroupId) && rawGroupId > 0 ? rawGroupId : 1;
 
         return {
           id: validId,
-          photoUrl: item.image_url || item.photo_url || item.photoUrl || '',
-          objectName: item.nama_benda || item.object_name || item.objectName || 'Benda Temuan',
-          realShape: item.real_shape || item.realShape || 'lingkaran',
-          groupId: validGroupId,
-          isProven: Boolean(item.is_proven || item.isProven),
+          image_url: String(item.image_url || ''),
+          nama_benda: String(item.nama_benda || 'Benda Temuan'),
+          real_shape: String(item.real_shape || 'lingkaran'),
+          kelompok_id: validGroupId,
+          is_proven: Boolean(item.is_proven),
         };
       });
     }

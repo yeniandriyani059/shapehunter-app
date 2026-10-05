@@ -426,11 +426,16 @@ export function mergeSupabaseDiscoveriesToState(
   currentState: FullSessionState,
   supabaseItems: Array<{
     id: number;
-    photoUrl: string;
-    objectName: string;
-    realShape: string;
-    groupId: number;
-    isProven: boolean;
+    image_url?: string;
+    nama_benda?: string;
+    real_shape?: string;
+    kelompok_id?: number;
+    is_proven?: boolean;
+    photoUrl?: string;
+    objectName?: string;
+    realShape?: string;
+    groupId?: number;
+    isProven?: boolean;
   }>
 ): FullSessionState {
   if (!Array.isArray(supabaseItems)) {
@@ -440,16 +445,19 @@ export function mergeSupabaseDiscoveriesToState(
   // Pure 1:1 mapping from Supabase public.kartu_temuan table
   const freshDiscoveries: Discovery[] = supabaseItems.map((remoteItem) => {
     const existing = currentState.discoveries.find((d) => d.id === remoteItem.id);
-    const assignedShape = (remoteItem.realShape as ShapeType) || 'lingkaran';
-    const isProven = Boolean(remoteItem.isProven);
+    const assignedShape = ((remoteItem.real_shape || remoteItem.realShape) as ShapeType) || 'lingkaran';
+    const isProven = Boolean(remoteItem.is_proven ?? remoteItem.isProven);
+    const photoUrl = remoteItem.image_url || remoteItem.photoUrl || '';
+    const objectName = remoteItem.nama_benda || remoteItem.objectName || 'Benda Temuan';
+    const groupId = Number(remoteItem.kelompok_id || remoteItem.groupId) || 1;
 
     return {
       id: remoteItem.id,
       sessionId: currentState.session.id,
-      groupId: remoteItem.groupId || 1,
+      groupId: groupId,
       studentName: existing?.studentName || 'Petualang Cilik',
-      objectName: remoteItem.objectName || 'Benda Temuan',
-      photoUrl: remoteItem.photoUrl,
+      objectName: objectName,
+      photoUrl: photoUrl,
       realShape: assignedShape,
       expectedShape: assignedShape,
       studentClaimedShape: assignedShape,

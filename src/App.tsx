@@ -160,16 +160,16 @@ function ShapeHunterApp() {
         const cards = await fetchKartuTemuanFromSupabase();
         if (Array.isArray(cards)) {
           setGameState((prev) => {
-            const mappedDiscoveries: Discovery[] = cards.map((card: any) => {
-              const shape = (card.realShape || 'lingkaran') as ShapeType;
-              const isProven = Boolean(card.isProven);
+            const mappedDiscoveries: Discovery[] = cards.map((card) => {
+              const shape = (card.real_shape || 'lingkaran') as ShapeType;
+              const isProven = Boolean(card.is_proven);
               return {
                 id: card.id,
                 sessionId: prev?.session?.id || 1,
-                groupId: card.groupId || 1,
+                groupId: Number(card.kelompok_id) || 1,
                 studentName: 'Petualang Cilik',
-                objectName: card.objectName || 'Benda Temuan',
-                photoUrl: card.photoUrl || '',
+                objectName: card.nama_benda || 'Benda Temuan',
+                photoUrl: card.image_url || '',
                 realShape: shape,
                 expectedShape: shape,
                 studentClaimedShape: shape,
