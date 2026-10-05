@@ -38,14 +38,13 @@ async function startServer() {
       if (Array.isArray(cards) && cards.length > 0) {
         serverGameState = mergeSupabaseDiscoveriesToState(serverGameState, cards);
       }
-    } catch (err) {
-      console.warn('[Server] Supabase sync notice:', err);
+    } catch {
+      // Safe ignore in serverless / local container
     }
   };
 
-  // Initial sync and periodic 3s background sync
+  // Initial state setup
   syncServerWithSupabase();
-  setInterval(syncServerWithSupabase, 3000);
 
   // WebSocket Server for Real-Time synchronization across local tabs/devices
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });

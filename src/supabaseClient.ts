@@ -76,59 +76,15 @@ export async function uploadPhotoToSupabaseBucket(dataUrl: string): Promise<stri
 }
 
 /**
- * Syncs a single discovery record to Supabase table "public.kartu_temuan"
- * using required fields: image_url, nama_benda, real_shape, kelompok_id, is_proven
+ * Neutralized: insertions must ONLY happen via explicit manual form submission in StudentUploaderView.tsx
  */
-export async function syncKartuTemuanToSupabase(discovery: {
-  id?: number;
-  photoUrl: string;
-  objectName: string;
-  realShape: string;
-  groupId: number;
-  isProven?: boolean;
-  traitsVerified?: boolean;
-}): Promise<void> {
-  if (!isSupabaseConfigured) return;
-
-  try {
-    const payload: Record<string, any> = {
-      image_url: discovery.photoUrl,
-      nama_benda: discovery.objectName,
-      real_shape: discovery.realShape,
-      kelompok_id: discovery.groupId,
-      is_proven: Boolean(discovery.isProven || discovery.traitsVerified),
-    };
-
-    if (discovery.id && discovery.id > 0) {
-      payload.id = discovery.id;
-    }
-
-    const { error } = await supabase
-      .from('kartu_temuan')
-      .upsert(payload, { onConflict: 'id' });
-
-    if (error) {
-      console.warn('Supabase "kartu_temuan" upsert notice:', error.message);
-      const { error: insertErr } = await supabase
-        .from('kartu_temuan')
-        .insert({
-          image_url: discovery.photoUrl,
-          nama_benda: discovery.objectName,
-          real_shape: discovery.realShape,
-          kelompok_id: discovery.groupId,
-          is_proven: Boolean(discovery.isProven || discovery.traitsVerified),
-        });
-      if (insertErr) {
-        console.warn('Supabase fallback insert notice:', insertErr.message);
-      }
-    }
-  } catch (err) {
-    console.warn('Supabase "kartu_temuan" sync exception:', err);
-  }
+export async function syncKartuTemuanToSupabase(_discovery: any): Promise<void> {
+  // No-op: prevents automatic looping inserts
+  return;
 }
 
 /**
- * Fetches all records from Supabase table "public.kartu_temuan"
+ * Fetches all records from Supabase table "public.kartu_temuan" with ID deduplication
  */
 export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
   id: number;
@@ -147,29 +103,44 @@ export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
       .order('id', { ascending: false });
 
     if (error) {
-      console.warn('Supabase fetch "kartu_temuan" notice:', error.message);
       return [];
     }
 
     if (Array.isArray(data)) {
-      return data.map((item: any, idx: number) => {
+      const seenIds = new Set<number>();
+      const results: Array<{
+        id: number;
+        image_url: string;
+        nama_benda: string;
+        real_shape: string;
+        kelompok_id: number;
+        is_proven: boolean;
+      }> = [];
+
+      for (let idx = 0; idx < data.length; idx++) {
+        const item = data[idx];
         const rawId = Number(item.id);
         const validId = !isNaN(rawId) && rawId !== 0 ? rawId : (idx + 1);
+        if (seenIds.has(validId)) continue;
+        seenIds.add(validId);
+
         const rawGroupId = Number(item.kelompok_id);
         const validGroupId = !isNaN(rawGroupId) && rawGroupId > 0 ? rawGroupId : 1;
 
-        return {
+        results.push({
           id: validId,
           image_url: String(item.image_url || ''),
           nama_benda: String(item.nama_benda || 'Benda Temuan'),
           real_shape: String(item.real_shape || 'lingkaran'),
           kelompok_id: validGroupId,
           is_proven: Boolean(item.is_proven),
-        };
-      });
+        });
+      }
+
+      return results;
     }
-  } catch (err) {
-    console.warn('Supabase fetch "kartu_temuan" exception:', err);
+  } catch {
+    // Suppress network errors
   }
 
   return [];
@@ -181,15 +152,12 @@ export async function fetchKartuTemuanFromSupabase(): Promise<Array<{
 export async function updateDiscoveryShapeInSupabase(id: number, newRealShape: string): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
-    const { error } = await supabase
+    await supabase
       .from('kartu_temuan')
       .update({ real_shape: newRealShape })
       .eq('id', id);
-    if (error) {
-      console.warn('Supabase update shape notice:', error.message);
-    }
-  } catch (err) {
-    console.warn('Supabase update shape exception:', err);
+  } catch {
+    // Safe ignore
   }
 }
 
@@ -199,15 +167,12 @@ export async function updateDiscoveryShapeInSupabase(id: number, newRealShape: s
 export async function resetKartuTemuanInSupabase(): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
-    const { error } = await supabase
+    await supabase
       .from('kartu_temuan')
       .delete()
       .gte('id', 0);
-    if (error) {
-      console.warn('Supabase reset kartu_temuan notice:', error.message);
-    }
-  } catch (err) {
-    console.warn('Supabase reset kartu_temuan exception:', err);
+  } catch {
+    // Safe ignore
   }
 }
 

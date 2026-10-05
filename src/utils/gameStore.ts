@@ -103,12 +103,16 @@ export function loadSavedGameState(): FullSessionState {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.session && parsed.groups && parsed.discoveries) {
-          return parsed;
+        if (parsed && parsed.session && parsed.groups) {
+          return {
+            ...parsed,
+            discoveries: [], // 100% Pure empty array! Only Supabase kartu_temuan is source of truth
+            attempts: parsed.attempts || [],
+          };
         }
       }
-    } catch (err) {
-      console.warn('Could not read saved game state:', err);
+    } catch {
+      // ignore
     }
   }
   return getDefaultGameState();
@@ -117,37 +121,13 @@ export function loadSavedGameState(): FullSessionState {
 export function saveGameState(state: FullSessionState): void {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (err) {
-      console.warn('Could not save game state to localStorage:', err);
-    }
-  }
-
-  // Asynchronously sync with Supabase if configured
-  if (isSupabaseConfigured) {
-    // 1. Sync full game session
-    supabase
-      .from('game_sessions')
-      .upsert({
-        id: state.session.id || 1,
-        code: state.session.code || 'SDN06',
-        state_data: state,
-        updated_at: new Date().toISOString(),
-      })
-      .then(({ error }) => {
-        if (error) {
-          console.warn('Supabase sync notice:', error.message);
-        }
-      })
-      .catch((err) => {
-        console.warn('Supabase sync exception:', err);
-      });
-
-    // 2. Sync all discoveries to public.kartu_temuan table
-    if (Array.isArray(state.discoveries)) {
-      state.discoveries.forEach((d) => {
-        syncKartuTemuanToSupabase(d);
-      });
+      const stateToSave = {
+        ...state,
+        discoveries: [], // Never store cards in localStorage
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    } catch {
+      // ignore
     }
   }
 }
@@ -207,7 +187,6 @@ export function addDiscoveryToState(
   };
 
   saveGameState(newState);
-  syncKartuTemuanToSupabase(newDiscovery);
 
   return { newState, newDiscovery };
 }

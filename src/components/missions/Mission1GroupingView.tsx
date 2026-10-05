@@ -483,7 +483,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
 
               return (
                 <div
-                  key={`m1-unlocked-${disc.id || index}-${index}`}
+                  key={`m1-unlocked-${disc.id}`}
                   onPointerDown={(e) => handleCardPointerDown(e, disc)}
                   onPointerMove={(e) => handleCardPointerMove(e, disc)}
                   onPointerUp={(e) =>

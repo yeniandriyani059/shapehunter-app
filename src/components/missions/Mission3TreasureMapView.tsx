@@ -826,7 +826,7 @@ export const Mission3TreasureMapView: React.FC<Mission3TreasureMapViewProps> = (
 
               return (
                 <div
-                  key={`m3-pouch-${disc.id || idx}-${idx}`}
+                  key={`m3-pouch-${disc.id}`}
                   onPointerDown={(e) => handleCardPointerDown(e, disc)}
                   onPointerMove={(e) => handleCardPointerMove(e, disc)}
                   onPointerUp={(e) => handleCardPointerUpOrCancel(e, disc, false)}

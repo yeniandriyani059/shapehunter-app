@@ -279,7 +279,7 @@ export const Mission2DetectiveView: React.FC<Mission2DetectiveViewProps> = ({
 
               return (
                 <div
-                  key={`m2-disc-${disc.id || idx}-${idx}`}
+                  key={`m2-disc-${disc.id}`}
                   onClick={() => !isProven && handleOpenProveModal(disc)}
                   className={`group relative rounded-3xl border-3 p-3 flex flex-col justify-between transition-all ${
                     isProven

@@ -71,46 +71,63 @@ function ShapeHunterApp() {
     }
   }, []);
 
-  // Pure 100% Supabase Real-time Synchronization (Serverless & Vercel compatible)
+  // Supabase as Single Source of Truth & Direct Realtime Event Handling
   useEffect(() => {
+    // Purge any legacy cached discoveries from localStorage
+    try {
+      const raw = localStorage.getItem('shape_hunter_client_game_state_v2');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.discoveries) && parsed.discoveries.length > 0) {
+          parsed.discoveries = [];
+          localStorage.setItem('shape_hunter_client_game_state_v2', JSON.stringify(parsed));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     if (!isSupabaseConfigured) return;
 
-    let previousCardCount = -1;
-
-    const syncSupabaseCards = async () => {
+    // 1. Initial Load: Fetch all discoveries from Supabase once on mount
+    const loadInitialSupabaseCards = async () => {
       try {
         const cards = await fetchKartuTemuanFromSupabase();
         if (Array.isArray(cards)) {
-          if (previousCardCount !== -1 && cards.length > previousCardCount) {
-            playPhotoIncomingSound();
-          }
-          previousCardCount = cards.length;
-
           setGameState((prev) => {
-            const mappedDiscoveries: Discovery[] = cards.map((card) => {
+            const seenIds = new Set<number>();
+            const uniqueDiscoveries: Discovery[] = [];
+
+            for (const card of cards) {
+              const cardId = Number(card.id);
+              if (seenIds.has(cardId)) continue;
+              seenIds.add(cardId);
+
+              const existing = prev?.discoveries?.find((d) => d.id === cardId);
               const shape = (card.real_shape || 'lingkaran') as ShapeType;
               const isProven = Boolean(card.is_proven);
-              return {
-                id: card.id,
+
+              uniqueDiscoveries.push({
+                id: cardId,
                 sessionId: prev?.session?.id || 1,
                 groupId: Number(card.kelompok_id) || 1,
-                studentName: 'Petualang Cilik',
+                studentName: existing?.studentName || 'Petualang Cilik',
                 objectName: card.nama_benda || 'Benda Temuan',
                 photoUrl: card.image_url || '',
                 realShape: shape,
                 expectedShape: shape,
                 studentClaimedShape: shape,
-                classifiedShape: isProven ? shape : null,
-                isLocked: isProven,
-                annotationsJson: '[]',
+                classifiedShape: existing?.classifiedShape ?? (isProven ? shape : null),
+                isLocked: existing?.isLocked ?? isProven,
+                annotationsJson: existing?.annotationsJson ?? '[]',
                 traitsVerified: isProven,
                 isProven: isProven,
-                createdAt: new Date().toISOString(),
-              };
-            });
+                createdAt: existing?.createdAt || new Date().toISOString(),
+              });
+            }
 
             const updatedScores = prev.scores.map((score) => {
-              const groupCardCount = mappedDiscoveries.filter((d) => d.groupId === score.groupId).length;
+              const groupCardCount = uniqueDiscoveries.filter((d) => d.groupId === score.groupId).length;
               return {
                 ...score,
                 totalDiscoveries: groupCardCount,
@@ -118,9 +135,9 @@ function ShapeHunterApp() {
               };
             });
 
-            const nextState = {
+            const nextState: FullSessionState = {
               ...prev,
-              discoveries: mappedDiscoveries,
+              discoveries: uniqueDiscoveries,
               scores: updatedScores,
             };
             saveGameState(nextState);
@@ -128,30 +145,141 @@ function ShapeHunterApp() {
           });
         }
       } catch (err) {
-        console.warn('Supabase cards sync warning:', err);
+        console.warn('Initial Supabase cards fetch notice:', err);
       }
     };
 
-    // Initial sync
-    syncSupabaseCards();
+    loadInitialSupabaseCards();
 
-    // Subscribe to Postgres changes on "public.kartu_temuan"
+    // 2. Realtime Event Listener: INSERT, UPDATE, DELETE directly from Supabase
     const channel = supabase
       .channel('public:kartu_temuan_realtime')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'kartu_temuan' },
-        () => {
-          syncSupabaseCards();
+        { event: 'INSERT', schema: 'public', table: 'kartu_temuan' },
+        (payload) => {
+          const newRow = payload.new as any;
+          if (!newRow || !newRow.id) return;
+          const cardId = Number(newRow.id);
+
+          setGameState((prev) => {
+            // Avoid adding if ID already exists
+            if (prev.discoveries.some((d) => d.id === cardId)) {
+              return prev;
+            }
+
+            const shape = (newRow.real_shape || 'lingkaran') as ShapeType;
+            const isProven = Boolean(newRow.is_proven);
+            const newDiscovery: Discovery = {
+              id: cardId,
+              sessionId: prev.session.id || 1,
+              groupId: Number(newRow.kelompok_id) || 1,
+              studentName: 'Petualang Cilik',
+              objectName: newRow.nama_benda || 'Benda Temuan',
+              photoUrl: newRow.image_url || '',
+              realShape: shape,
+              expectedShape: shape,
+              studentClaimedShape: shape,
+              classifiedShape: isProven ? shape : null,
+              isLocked: isProven,
+              annotationsJson: '[]',
+              traitsVerified: isProven,
+              isProven: isProven,
+              createdAt: new Date().toISOString(),
+            };
+
+            playPhotoIncomingSound();
+
+            const nextDiscoveries = [newDiscovery, ...prev.discoveries];
+            const updatedScores = prev.scores.map((score) => {
+              const count = nextDiscoveries.filter((d) => d.groupId === score.groupId).length;
+              return {
+                ...score,
+                totalDiscoveries: count,
+                updatedAt: new Date().toISOString(),
+              };
+            });
+
+            const nextState: FullSessionState = {
+              ...prev,
+              discoveries: nextDiscoveries,
+              scores: updatedScores,
+            };
+            saveGameState(nextState);
+            return nextState;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'kartu_temuan' },
+        (payload) => {
+          const updatedRow = payload.new as any;
+          if (!updatedRow || !updatedRow.id) return;
+          const cardId = Number(updatedRow.id);
+
+          setGameState((prev) => {
+            const updatedDiscoveries = prev.discoveries.map((d) => {
+              if (d.id === cardId) {
+                const shape = (updatedRow.real_shape || d.realShape) as ShapeType;
+                const isProven = Boolean(updatedRow.is_proven ?? d.isProven);
+                return {
+                  ...d,
+                  objectName: updatedRow.nama_benda || d.objectName,
+                  photoUrl: updatedRow.image_url || d.photoUrl,
+                  realShape: shape,
+                  expectedShape: shape,
+                  groupId: Number(updatedRow.kelompok_id) || d.groupId,
+                  isProven: isProven,
+                  traitsVerified: isProven,
+                  classifiedShape: isProven ? shape : d.classifiedShape,
+                  isLocked: isProven ? true : d.isLocked,
+                };
+              }
+              return d;
+            });
+
+            const nextState: FullSessionState = {
+              ...prev,
+              discoveries: updatedDiscoveries,
+            };
+            saveGameState(nextState);
+            return nextState;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'kartu_temuan' },
+        (payload) => {
+          const oldRow = payload.old as any;
+          if (!oldRow || !oldRow.id) return;
+          const cardId = Number(oldRow.id);
+
+          setGameState((prev) => {
+            const nextDiscoveries = prev.discoveries.filter((d) => d.id !== cardId);
+            const updatedScores = prev.scores.map((score) => {
+              const count = nextDiscoveries.filter((d) => d.groupId === score.groupId).length;
+              return {
+                ...score,
+                totalDiscoveries: count,
+                updatedAt: new Date().toISOString(),
+              };
+            });
+
+            const nextState: FullSessionState = {
+              ...prev,
+              discoveries: nextDiscoveries,
+              scores: updatedScores,
+            };
+            saveGameState(nextState);
+            return nextState;
+          });
         }
       )
       .subscribe();
 
-    // Secondary 3s fallback poller from Supabase directly
-    const interval = setInterval(syncSupabaseCards, 3000);
-
     return () => {
-      clearInterval(interval);
       supabase.removeChannel(channel);
     };
   }, []);

@@ -139,6 +139,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
 
   const handleSubmitDiscovery = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (uploading) return;
     if (!photoPreview || !objectName.trim()) {
       setHintMsg('Ambil foto benda dan beri nama temuannya terlebih dahulu!');
       return;
@@ -204,19 +205,18 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
           throw new Error(`Gagal menyimpan ke tabel database: ${insertErr.message}`);
         }
       } else {
-        throw new Error('Konfigurasi Supabase tidak terdeteksi pada perangkat ini.');
+        // Fallback hanya saat offline / tanpa Supabase
+        const { newState } = addDiscoveryToState(state, {
+          groupId: selectedGroupId,
+          studentName: studentName.trim() || 'Petualang Cilik',
+          objectName: finalObjectName,
+          photoUrl: finalPhotoUrl,
+          expectedShape,
+          realShape: assignedShape,
+          studentClaimedShape: expectedShape,
+        });
+        onDiscoveryUploaded(newState);
       }
-
-      // 3. Perbarui state lokal aplikasi
-      const { newState } = addDiscoveryToState(state, {
-        groupId: selectedGroupId,
-        studentName: studentName.trim() || 'Petualang Cilik',
-        objectName: finalObjectName,
-        photoUrl: finalPhotoUrl,
-        expectedShape,
-        realShape: assignedShape,
-        studentClaimedShape: expectedShape,
-      });
 
       playPhotoIncomingSound();
       const targetGroup = groups.find((g) => g.id === selectedGroupId);
@@ -228,7 +228,6 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
       setObjectName('');
       setPhotoPreview('');
       setRawFile(null);
-      onDiscoveryUploaded(newState);
     } catch (err: any) {
       setHintMsg(err.message || 'Gagal mengirim temuan. Silakan coba lagi.');
     } finally {
