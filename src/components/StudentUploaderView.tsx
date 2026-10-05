@@ -17,12 +17,10 @@ import { CharacterGuide, TeamCampBadge } from './GameAssets3D.tsx';
 import { ProveModal } from './ProveModal.tsx';
 import { LiveCameraModal } from './LiveCameraModal.tsx';
 import { analyzeShapeClientSide } from '../utils/shapeDetector.ts';
-import { addDiscoveryToState, addDiscoveryToStateAsync } from '../utils/gameStore.ts';
+import { addDiscoveryToState } from '../utils/gameStore.ts';
 import {
   supabase,
   isSupabaseConfigured,
-  uploadPhotoToSupabaseBucket,
-  syncKartuTemuanToSupabase,
 } from '../supabaseClient.ts';
 import {
   playClickSound,
@@ -58,7 +56,7 @@ async function compressImageFile(file: File): Promise<string> {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, w, h);
-          resolve(canvas.toDataURL('image/jpeg', 0.82));
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
         } else {
           resolve(e.target?.result as string);
         }
@@ -99,9 +97,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [hintMsg, setHintMsg] = useState<string | null>(null);
-  const [provingDiscovery, setProvingDiscovery] = useState<Discovery | null>(
-    null
-  );
+  const [provingDiscovery, setProvingDiscovery] = useState<Discovery | null>(null);
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -112,7 +108,6 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
     setRawFile(file);
     setIsCameraModalOpen(false);
 
-    // Instant client-side shape analysis
     analyzeShapeClientSide(dataUrl).then((res) => {
       if (res.namaBenda && (!objectName || objectName === 'Temuan Hebatku')) {
         setObjectName(res.namaBenda);
@@ -131,7 +126,6 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
       const compressedDataUrl = await compressImageFile(file);
       setPhotoPreview(compressedDataUrl);
 
-      // Instant client-side shape analysis
       analyzeShapeClientSide(compressedDataUrl).then((res) => {
         if (res.namaBenda && (!objectName || objectName === 'Temuan Hebatku')) {
           setObjectName(res.namaBenda);
@@ -139,14 +133,14 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
         setExpectedShape(res.realShape);
       });
     } catch {
-      setHintMsg('Yuk coba ambil foto sekali lagi!');
+      setHintMsg('Gagal memproses gambar. Coba ambil foto sekali lagi!');
     }
   };
 
   const handleSubmitDiscovery = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!photoPreview || !objectName.trim()) {
-      setHintMsg('Ambil foto benda dan beri namanya dulu ya, Petualang!');
+      setHintMsg('Ambil foto benda dan beri nama temuannya terlebih dahulu!');
       return;
     }
 
@@ -155,81 +149,66 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
     setUploadSuccess(null);
 
     try {
-      // 1. Analyze shape client-side (AI computer vision)
       const aiResult = await analyzeShapeClientSide(photoPreview);
       const finalObjectName = objectName.trim() || aiResult.namaBenda || 'Benda Temuan';
       const assignedShape = (aiResult.realShape || expectedShape || 'lingkaran') as ShapeType;
 
-      // 2. Upload file to Supabase Storage bucket 'foto_temuan'
       let finalPhotoUrl = photoPreview;
+
+      // 1. Upload ke Supabase Storage (foto_temuan)
       if (isSupabaseConfigured) {
-        try {
-          let fileToUpload: Uint8Array | Blob | File | null = rawFile;
-          let contentType = 'image/jpeg';
-          let fileExt = 'jpg';
+        let blobToUpload: Blob | null = null;
 
-          if (!fileToUpload && photoPreview.startsWith('data:image/')) {
-            const match = photoPreview.match(/^data:(image\/[a-zA-Z0-9\+\-]+);base64,(.+)$/);
-            if (match) {
-              contentType = match[1];
-              fileExt = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
-              const binaryStr = atob(match[2]);
-              const bytes = new Uint8Array(binaryStr.length);
-              for (let i = 0; i < binaryStr.length; i++) {
-                bytes[i] = binaryStr.charCodeAt(i);
-              }
-              fileToUpload = bytes;
-            }
-          }
-
-          if (fileToUpload) {
-            const fileName = `temuan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-            const { data: storageData, error: storageErr } = await supabase.storage
-              .from('foto_temuan')
-              .upload(fileName, fileToUpload, {
-                contentType,
-                upsert: true,
-              });
-
-            if (storageErr) {
-              console.warn('Supabase storage upload error:', storageErr.message);
-            } else if (storageData?.path) {
-              const { data: urlData } = supabase.storage
-                .from('foto_temuan')
-                .getPublicUrl(storageData.path);
-              if (urlData?.publicUrl) {
-                finalPhotoUrl = urlData.publicUrl;
-              }
-            }
-          }
-        } catch (storageException) {
-          console.warn('Supabase Storage exception:', storageException);
+        if (photoPreview.startsWith('data:image/')) {
+          const res = await fetch(photoPreview);
+          blobToUpload = await res.blob();
+        } else if (rawFile) {
+          blobToUpload = rawFile;
         }
-      }
 
-      // 3. Save discovery row into Supabase table "public.kartu_temuan"
-      if (isSupabaseConfigured) {
-        try {
-          const { error: insertErr } = await supabase
-            .from('kartu_temuan')
-            .insert({
-              image_url: finalPhotoUrl,
-              nama_benda: finalObjectName,
-              real_shape: assignedShape,
-              kelompok_id: selectedGroupId,
-              is_proven: false,
+        if (blobToUpload) {
+          const fileName = `temuan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.jpg`;
+          const { data: storageData, error: storageErr } = await supabase.storage
+            .from('foto_temuan')
+            .upload(fileName, blobToUpload, {
+              contentType: 'image/jpeg',
+              upsert: true,
             });
 
-          if (insertErr) {
-            console.warn('Supabase kartu_temuan insert error:', insertErr.message);
+          if (storageErr) {
+            throw new Error(`Gagal upload foto ke Storage: ${storageErr.message}`);
           }
-        } catch (tableException) {
-          console.warn('Supabase table exception:', tableException);
+
+          if (storageData?.path) {
+            const { data: urlData } = supabase.storage
+              .from('foto_temuan')
+              .getPublicUrl(storageData.path);
+            if (urlData?.publicUrl) {
+              finalPhotoUrl = urlData.publicUrl;
+            }
+          }
         }
+
+        // 2. Simpan baris ke tabel kartu_temuan Supabase
+        const { error: insertErr } = await supabase
+          .from('kartu_temuan')
+          .insert({
+            image_url: finalPhotoUrl,
+            nama_benda: finalObjectName,
+            real_shape: assignedShape,
+            kelompok_id: selectedGroupId,
+            is_proven: false,
+          });
+
+        if (insertErr) {
+          throw new Error(`Gagal menyimpan ke tabel database: ${insertErr.message}`);
+        }
+      } else {
+        throw new Error('Konfigurasi Supabase tidak terdeteksi pada perangkat ini.');
       }
 
-      // 4. Update state and notify game session
-      const { newState, newDiscovery } = addDiscoveryToState(state, {
+      // 3. Perbarui state lokal aplikasi
+      const { newState } = addDiscoveryToState(state, {
         groupId: selectedGroupId,
         studentName: studentName.trim() || 'Petualang Cilik',
         objectName: finalObjectName,
@@ -242,7 +221,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
       playPhotoIncomingSound();
       const targetGroup = groups.find((g) => g.id === selectedGroupId);
       setUploadSuccess(
-        `HEBAT! Kartu "${finalObjectName}" (${assignedShape.toUpperCase()}) sudah terbang ke Kemah ${
+        `HEBAT! Kartu "${finalObjectName}" (${assignedShape.toUpperCase()}) berhasil terkirim ke Kemah ${
           targetGroup ? formatCampDisplayName(targetGroup.name) : 'Timmu'
         }!`
       );
@@ -251,7 +230,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
       setRawFile(null);
       onDiscoveryUploaded(newState);
     } catch (err: any) {
-      setHintMsg(err.message || 'Coba kirim sekali lagi ya!');
+      setHintMsg(err.message || 'Gagal mengirim temuan. Silakan coba lagi.');
     } finally {
       setUploading(false);
     }
@@ -315,7 +294,8 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
           mood={uploadSuccess ? 'celebrating' : 'cheerful'}
           message={
             uploadSuccess ||
-            SHAPE_DEFINITIONS[expectedShape].lunaPrompt
+            SHAPE_DEFINITIONS[expectedShape]?.lunaPrompt ||
+            'Ayo cari benda di sekitarmu!'
           }
         />
 
@@ -335,8 +315,8 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
         )}
 
         {hintMsg && (
-          <div className="p-3.5 rounded-2xl bg-amber-50 border-2 border-amber-400 text-amber-950 font-display font-bold text-sm">
-            {hintMsg}
+          <div className="p-3.5 rounded-2xl bg-rose-50 border-2 border-rose-400 text-rose-950 font-display font-bold text-sm">
+            ⚠️ {hintMsg}
           </div>
         )}
 
@@ -400,7 +380,6 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
               </label>
             </div>
 
-            {/* Petunjuk Lokasi Pencarian Sekolah */}
             <div className="mb-3 rounded-2xl bg-amber-50 border-2 border-amber-300 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
               <div className="font-bold text-amber-950">
                 Petunjuk Lokasi Sekolah:
