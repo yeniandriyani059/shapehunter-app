@@ -8,6 +8,7 @@ import {
   ShapeType,
   MISSION_LEVELS,
 } from '../types/game.ts';
+import { supabase, isSupabaseConfigured } from '../supabaseClient.ts';
 
 const STORAGE_KEY = 'shape_hunter_client_game_state_v2';
 
@@ -110,6 +111,26 @@ export function saveGameState(state: FullSessionState): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (err) {
     console.warn('Could not save game state to localStorage:', err);
+  }
+
+  // Asynchronously sync with Supabase if configured
+  if (isSupabaseConfigured) {
+    supabase
+      .from('game_sessions')
+      .upsert({
+        id: state.session.id || 1,
+        code: state.session.code || 'SDN06',
+        state_data: state,
+        updated_at: new Date().toISOString(),
+      })
+      .then(({ error }) => {
+        if (error) {
+          console.warn('Supabase sync notice:', error.message);
+        }
+      })
+      .catch((err) => {
+        console.warn('Supabase sync exception:', err);
+      });
   }
 }
 
