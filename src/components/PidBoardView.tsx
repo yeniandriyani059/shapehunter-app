@@ -3,7 +3,8 @@ import {
   Clock,
   LayoutGrid,
   Maximize2,
-  Map,
+  Minimize2,
+  Map as MapIcon,
   Trophy,
 } from 'lucide-react';
 import {
@@ -36,6 +37,38 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
   const sortedGroups = [...groups].sort((a, b) => a.arenaSlot - b.arenaSlot);
   const activeGroupCount = Math.min(Math.max(session.activeGroupCount || 2, 2), groups.length);
   const activeGroups = sortedGroups.slice(0, activeGroupCount);
+
+  // Fullscreen state tracking
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
+    return typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false;
+  });
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullScreen = async () => {
+    playClickSound();
+    try {
+      if (!document.fullscreenElement) {
+        if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+      }
+    } catch (err) {
+      console.warn('Fullscreen request notice:', err);
+    }
+  };
 
   // Detect whether current client is on mobile/tablet (< 1024px)
   const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
@@ -133,11 +166,15 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
   // Safe isolated attempt handler: merges group update without destroying or overwriting other groups' cards
   const handleGroupAttemptSubmitted = (newStateFromGroup: FullSessionState) => {
     // 1. Combine all discoveries, ensuring other groups' cards remain 100% intact
-    const currentDiscoveriesMap = new Map<number, Discovery>();
-    (state.discoveries || []).forEach((d) => currentDiscoveriesMap.set(d.id, d));
-    (newStateFromGroup.discoveries || []).forEach((d) => currentDiscoveriesMap.set(d.id, d));
+    const currentDiscoveriesMap: Record<number, Discovery> = {};
+    (state.discoveries || []).forEach((d) => {
+      if (d && typeof d.id === 'number') currentDiscoveriesMap[d.id] = d;
+    });
+    (newStateFromGroup.discoveries || []).forEach((d) => {
+      if (d && typeof d.id === 'number') currentDiscoveriesMap[d.id] = d;
+    });
 
-    const mergedDiscoveries = Array.from(currentDiscoveriesMap.values());
+    const mergedDiscoveries = Object.values(currentDiscoveriesMap);
 
     // 2. Merge scores: update only the submitting group's score
     const mergedScores = (state.scores || []).map((score) => {
@@ -200,7 +237,7 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
             className="btn-3d px-3 py-1.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-display text-xs sm:text-sm font-bold shadow-[0_3px_0_#0284C7] flex items-center gap-1.5 cursor-pointer"
             title="Buka Peta Misi untuk Memilih Level Lain"
           >
-            <Map className="w-4 h-4 text-amber-300" />
+            <MapIcon className="w-4 h-4 text-amber-300" />
             <span>Peta Misi</span>
           </button>
 
@@ -228,7 +265,28 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
           </div>
         </div>
 
-        {/* Right: Layout Mode Switcher (Semua Kelompok Grid vs Fokus Kelompok) */}
+        {/* Right: Layout Mode Switcher & Layar Penuh (Full Screen) */}
+        <div className="flex items-center gap-2">
+          {/* Layar Penuh (Full Screen) Button */}
+          <button
+            type="button"
+            onClick={toggleFullScreen}
+            className="btn-3d px-3 py-1.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-display text-xs sm:text-sm font-bold shadow-[0_3px_0_#4338CA] flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            title={isFullscreen ? 'Keluar dari Layar Penuh' : 'Masuk ke Mode Layar Penuh (Full Screen)'}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-4 h-4 text-amber-300" />
+                <span className="hidden sm:inline">Keluar Penuh</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-4 h-4 text-amber-300" />
+                <span>Layar Penuh</span>
+              </>
+            )}
+          </button>
+
           <div className="flex items-center gap-1 bg-slate-800/90 p-1 rounded-2xl border border-slate-700">
             <button
               type="button"
@@ -265,6 +323,7 @@ export const PidBoardView: React.FC<PidBoardViewProps> = ({
             </button>
           </div>
         </div>
+      </div>
 
       {/* 2. GROUP SELECTOR TABS (WHEN IN FOCUS MODE OR OPTIONAL QUICK NAV) */}
       {effectiveLayoutMode === 'focus' && activeGroups.length > 1 && (

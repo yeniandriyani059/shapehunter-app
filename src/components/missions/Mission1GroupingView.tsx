@@ -188,14 +188,18 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
       try {
         const currentSavedState = loadSavedGameState();
 
-        // 1. Build a complete, non-destructive list of all discoveries
-        const discMap = new Map<number, Discovery>();
-        (currentSavedState.discoveries || []).forEach((d) => discMap.set(d.id, d));
-        (groupDiscoveries || []).forEach((d) => discMap.set(d.id, d));
+        // 1. Build a complete, non-destructive dictionary of all discoveries
+        const discMap: Record<number, Discovery> = {};
+        (currentSavedState.discoveries || []).forEach((d) => {
+          if (d && typeof d.id === 'number') discMap[d.id] = d;
+        });
+        (groupDiscoveries || []).forEach((d) => {
+          if (d && typeof d.id === 'number') discMap[d.id] = d;
+        });
 
         // 2. Update the target dropped discovery to be grouped into this island (remains open for Mission 2 proof)
-        const currentDisc = discMap.get(disc.id) || disc;
-        discMap.set(disc.id, {
+        const currentDisc = discMap[disc.id] || disc;
+        discMap[disc.id] = {
           ...currentDisc,
           island: targetShape,
           targetShape: targetShape,
@@ -204,9 +208,9 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
           isProven: false, // Proven in Mission 2 by counting sides & corners
           traitsVerified: false,
           xp: typeof currentDisc.xp === 'number' && currentDisc.xp > 0 ? currentDisc.xp : 10,
-        });
+        };
 
-        const updatedDiscoveries = Array.from(discMap.values());
+        const updatedDiscoveries = Object.values(discMap);
 
         // 3. Update group score: add +10 XP
         const updatedScores = currentSavedState.scores.map((score) => {

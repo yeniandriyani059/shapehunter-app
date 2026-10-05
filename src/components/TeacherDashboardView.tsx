@@ -16,6 +16,8 @@ import {
   Check,
   X,
   RefreshCw,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import {
   FullSessionState,
@@ -89,6 +91,38 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
   const [busy, setBusy] = useState(false);
   const [loadingGallery, setLoadingGallery] = useState(false);
   const [liveCards, setLiveCards] = useState<SupabaseCardItem[]>([]);
+
+  // Fullscreen state tracking
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => {
+    return typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false;
+  });
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullScreen = async () => {
+    playClickSound();
+    try {
+      if (!document.fullscreenElement) {
+        if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+      }
+    } catch (err) {
+      console.warn('Fullscreen request notice:', err);
+    }
+  };
 
   // Function to perform confirmed fresh session creation
   const handleExecuteNewSession = () => {
@@ -446,6 +480,25 @@ export const TeacherDashboardView: React.FC<TeacherDashboardViewProps> = ({
               <span>Login Google Guru</span>
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={toggleFullScreen}
+            className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-800 flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs"
+            title={isFullscreen ? 'Keluar dari Layar Penuh' : 'Tampilkan Layar Penuh'}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-4 h-4 text-indigo-600" />
+                <span>Keluar Penuh</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-4 h-4 text-indigo-600" />
+                <span>Layar Penuh</span>
+              </>
+            )}
+          </button>
 
           <button
             type="button"
