@@ -1,8 +1,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Ganti teks di bawah ini dengan Project URL dan Anon Key asli dari Supabase Ibu
-const SUPABASE_PROJECT_URL = 'MASUKKAN_URL_SUPABASE_DISINI'; 
-const SUPABASE_ANON_KEY = 'MASUKKAN_ANON_KEY_DISINI';       
+const SUPABASE_PROJECT_URL = 'https://nqdopaupzxibaozlolpl.supabase.co'; 
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xZG9wYXVwenhpYmFvemxvbHBsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMzYwNTIsImV4cCI6MjEwNDkxMjA1Mn0.aoe7q8bmkQdaGhXOv1nJj7tssC3_05U5apV0O2Stn-Y';       
 
 const env: Record<string, string | undefined> = (typeof import.meta !== 'undefined' && import.meta && (import.meta as any).env)
   ? (import.meta as any).env
