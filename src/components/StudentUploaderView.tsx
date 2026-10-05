@@ -154,7 +154,7 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
       const finalObjectName = objectName.trim() || aiResult.namaBenda || 'Benda Temuan';
 
       // Store in client-side state and sync with Supabase storage & public.kartu_temuan table
-      const { newState } = await addDiscoveryToStateAsync(state, {
+      const { newState, newDiscovery } = await addDiscoveryToStateAsync(state, {
         groupId: selectedGroupId,
         studentName: studentName.trim() || 'Petualang Cilik',
         objectName: finalObjectName,
@@ -163,6 +163,25 @@ export const StudentUploaderView: React.FC<StudentUploaderViewProps> = ({
         realShape: aiResult.realShape,
         studentClaimedShape: expectedShape,
       });
+
+      // Also notify backend server and WebSocket clients
+      try {
+        fetch('/api/discoveries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            groupId: selectedGroupId,
+            studentName: studentName.trim() || 'Petualang Cilik',
+            objectName: finalObjectName,
+            photoUrl: newDiscovery.photoUrl,
+            expectedShape,
+            realShape: aiResult.realShape,
+            studentClaimedShape: expectedShape,
+          }),
+        }).catch(() => {});
+      } catch {
+        // Safe ignore
+      }
 
       playPhotoIncomingSound();
       const targetGroup = groups.find((g) => g.id === selectedGroupId);
