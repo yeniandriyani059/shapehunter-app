@@ -283,9 +283,9 @@ export const PidArenaPanel: React.FC<PidArenaPanelProps> = ({
         </div>
       </div>
 
-      {/* 2. PERJALANAN MISI (Visual Adventure Trail + Character Guide) */}
-      <div className="px-5 pt-3.5 pb-2 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3 bg-white/85 rounded-2xl px-4 py-2 border-2 border-slate-200/80">
+      {/* 2. PERJALANAN MISI (Bilah Progres Misi) */}
+      <div className="px-5 pt-2.5 pb-1 flex flex-col">
+        <div className="flex items-center justify-between gap-3 bg-white/85 rounded-2xl px-4 py-2 border-2 border-slate-200/80 shadow-2xs">
           <span className="font-display font-bold text-sm text-slate-800 whitespace-nowrap">
             {currentLevel === 1
               ? 'Misi 1 — Kelompokkan!'
@@ -312,18 +312,10 @@ export const PidArenaPanel: React.FC<PidArenaPanelProps> = ({
               : `${lockedDiscoveries.length}/${totalCount} Terbuka!`}
           </span>
         </div>
-
-        {/* Recurring 3D Chibi Guide (Raka or Luna) */}
-        <CharacterGuide
-          character={guideCharacter}
-          mood={guideState?.mood || 'cheerful'}
-          message={guideState?.text || defaultMessage}
-          compact
-        />
       </div>
 
       {/* 3. DEDICATED VISUAL LAYOUTS BASED ON ACTIVE MISSION (1, 2, or 3) */}
-      <div className="relative px-5 py-3 flex-1 flex flex-col">
+      <div className="relative px-5 py-2 flex-1 flex flex-col">
         {currentLevel === 1 && (
           <Mission1GroupingView
             campSide={campSide}

@@ -463,27 +463,7 @@ export const Mission1GroupingView: React.FC<Mission1GroupingViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Misi 1 Banner */}
-      <div className="rounded-2xl border-2 border-sky-400 bg-sky-50/90 px-4 py-2.5 flex items-center justify-between gap-3 shadow-xs">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className="w-9 h-9 rounded-xl bg-sky-200 border border-sky-400 flex items-center justify-center font-display font-black text-sky-900 text-sm shrink-0">
-            M1
-          </span>
-          <div className="min-w-0">
-            <h3 className="font-display text-sm sm:text-base font-bold text-sky-950 truncate">
-              Misi 1: Kelompokkan Bentuk ke Pulau!
-            </h3>
-            <p className="text-xs text-sky-800 truncate">
-              Sentuh & seret kartu foto Temuanmu ke salah satu dari 4 Pulau Bentuk.
-            </p>
-          </div>
-        </div>
-        <span className="px-3 py-1 rounded-xl bg-sky-200/80 text-sky-900 font-display font-bold text-xs shrink-0 whitespace-nowrap">
-          Seret & Lepas
-        </span>
-      </div>
-
+    <div className="flex flex-col gap-3">
       {/* Banner Akumulasi XP Misi 1 */}
       <div className="flex items-center justify-between bg-gradient-to-r from-amber-400 via-amber-300 to-amber-400 rounded-2xl px-4 py-2.5 border-2 border-amber-500 shadow-sm shadow-amber-200/50">
         <div className="flex items-center gap-2.5">
